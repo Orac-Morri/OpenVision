@@ -14,10 +14,9 @@
 // NOTE: Requires iOS 18+ and a physical device (MLX is unavailable on the Simulator).
 
 import Foundation
-import CoreImage
 import UIKit            // UIApplication.applicationState — GPU inference is forbidden in background
 import MLX
-import MLXVLM            // native Gemma 4 vision-language model (text + image)
+import MLXVLM            // Gemma 4 model (loaded via VLMModelFactory; used text-only here)
 import MLXLMCommon
 import MLXHuggingFace   // #hubDownloader() / #huggingFaceTokenizerLoader() macros
 import HuggingFace      // the macros expand to HuggingFace.HubClient …
@@ -188,29 +187,19 @@ final class GemmaLocalService: ObservableObject {
         cancelRequested = false
         defer { setProcessing(false) }
 
-        var images: [UserInput.Image] = []
-        if let data = imageData, var ciImage = CIImage(data: data) {
-            // Downscale frames before the vision encoder — memory scales with image area, and
-            // the VLM + image was hitting the ~6GB jetsam limit. 768px keeps detail but is ~⅔ the
-            // pixels of 1024 (and Gemma's vision works around this size anyway).
-            let maxDim: CGFloat = 768
-            let longest = max(ciImage.extent.width, ciImage.extent.height)
-            if longest > maxDim {
-                let scale = maxDim / longest
-                ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            }
-            images.append(.ciImage(ciImage))
-        }
+        // Local Gemma is TEXT-ONLY for stability. On-device vision (encoding an image) pushed
+        // memory to the ~6GB jetsam limit and crashed; photo commands route to the cloud
+        // backend instead. `imageData` is intentionally ignored here.
 
         // Keep replies short — this is spoken aloud on glasses, so long answers get tiresome
         // (and the TTS cuts off after ~a minute). Aim for a couple of natural sentences.
-        let brevity = "You are a hands-free voice assistant for smart glasses. Reply in 2–4 natural sentences — enough detail to be genuinely useful and give a real sense of things, but brief enough to hear comfortably (around 20–30 seconds). Be specific and concrete, not vague. When describing an image, name the main object and mention its key visible details. No lists, no markdown, no preamble; just answer."
+        let brevity = "You are a hands-free voice assistant for smart glasses. Reply in 2–4 natural sentences — enough detail to be genuinely useful and give a real sense of things, but brief enough to hear comfortably (around 20–30 seconds). Be specific and concrete, not vague. No lists, no markdown, no preamble; just answer."
         let userSys = SettingsManager.shared.settings.userPrompt
         let systemContent = userSys.isEmpty ? brevity : "\(userSys)\n\n\(brevity)"
 
         var chat: [Chat.Message] = []
         chat.append(.init(role: .system, content: systemContent))
-        chat.append(.init(role: .user, content: text, images: images))
+        chat.append(.init(role: .user, content: text))
         let userInput = UserInput(chat: chat)
 
         // Tag this generation. If a newer request starts, older ones stop and stay silent —

@@ -897,9 +897,11 @@ struct VoiceAgentView: View {
 
             case .localGemma:
                 if isPhotoCommand {
-                    // On-device vision: capture the glasses photo and feed it to the Gemma 4 VLM.
-                    print("[VoiceAgentView] Photo command on Local Gemma, capturing…")
-                    await captureAndSendPhoto(withPrompt: command)
+                    // Local Gemma is text-only (stable, low-memory). Camera/vision needs a cloud
+                    // backend — guide the user to switch instead of running on-device vision.
+                    print("[VoiceAgentView] Photo command on Local Gemma — text-only, guiding to cloud")
+                    agentState = isSessionActive ? .listening : .idle
+                    speakResponse("Local mode is text only. To use the camera, switch to Gemini or OpenClaw in Settings.")
                 } else {
                     try await GemmaLocalService.shared.sendMessage(command)
                 }
