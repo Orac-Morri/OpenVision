@@ -55,6 +55,7 @@ targets:
         SUPPORTS_MACCATALYST: false
         ENABLE_PREVIEWS: true
         CODE_SIGN_ENTITLEMENTS: OpenVision/OpenVision.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: OpenVision/OpenVision-Bridging-Header.h
     dependencies:
       - package: meta-wearables-dat-ios
         products:

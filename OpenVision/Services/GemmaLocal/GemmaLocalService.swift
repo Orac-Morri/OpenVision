@@ -196,21 +196,28 @@ final class GemmaLocalService: ObservableObject {
         chat.append(.init(role: .user, content: text, images: images))
         let userInput = UserInput(chat: chat)
 
+        NSLog("[OV] GemmaLocal: starting generation…")
         let stream = try await container.perform { (context: ModelContext) in
             let lmInput = try await context.processor.prepare(input: userInput)
-            let parameters = GenerateParameters(temperature: 0.7)
+            // Cap output length — without this, generation can run for minutes on-device and
+            // the UI sits on "thinking". 220 tokens ≈ a few short spoken sentences.
+            let parameters = GenerateParameters(maxTokens: 220, temperature: 0.7)
             return try MLXLMCommon.generate(input: lmInput, parameters: parameters, context: context)
         }
 
         var full = ""
+        var tokenCount = 0
         for await item in stream {
             if cancelRequested { break }
             if case .chunk(let piece) = item {
                 full += piece
+                tokenCount += 1
+                if tokenCount == 1 { NSLog("[OV] GemmaLocal: first token received") }
                 let snapshot = full
                 await MainActor.run { self.onPartialResponse?(snapshot) }
             }
         }
+        NSLog("[OV] GemmaLocal: generation done — %d chunks, %d chars", tokenCount, full.count)
         let reply = full
         if !cancelRequested {
             await MainActor.run { self.onAgentMessage?(reply) }

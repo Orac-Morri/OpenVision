@@ -151,11 +151,31 @@ final class VoiceCommandService: ObservableObject {
 
         // Get input node
         let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0) // defensive: never install over an existing tap
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        // Install tap
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            recognitionRequest.append(buffer)
+        // Guard against an invalid input format. This happens when the mic is unavailable —
+        // most commonly while the user is on a phone/FaceTime call, where the input route
+        // reports 0 Hz / 0 channels. Installing a tap with that format throws (SIGABRT),
+        // so bail gracefully instead of crashing.
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            print("[VoiceCommand] Input unavailable (format \(recordingFormat.sampleRate)Hz/\(recordingFormat.channelCount)ch) — mic likely in use by a call. Skipping listen.")
+            self.recognitionRequest = nil
+            self.audioEngine = nil
+            throw VoiceCommandError.audioEngineUnavailable
+        }
+
+        // Install tap — wrapped so an AVAudioEngine NSException (mic busy / bad route, e.g.
+        // during a phone call) fails gracefully instead of aborting the process.
+        if let reason = OVCatchException({
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+                recognitionRequest.append(buffer)
+            }
+        }) {
+            print("[VoiceCommand] installTap failed: \(reason)")
+            self.recognitionRequest = nil
+            self.audioEngine = nil
+            throw VoiceCommandError.audioEngineUnavailable
         }
 
         // Start audio engine first (before recognition task)
@@ -247,10 +267,25 @@ final class VoiceCommandService: ObservableObject {
         // Reinstall tap
         guard let audioEngine = audioEngine else { return }
         let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0) // defensive: never install over an existing tap
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            recognitionRequest.append(buffer)
+        // Skip if the mic is unavailable (e.g. on a call) — installing a tap with a
+        // 0 Hz / 0 channel format throws.
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            print("[VoiceCommand] Input unavailable on reinstall — skipping tap")
+            self.recognitionRequest = nil
+            return
+        }
+
+        if let reason = OVCatchException({
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+                recognitionRequest.append(buffer)
+            }
+        }) {
+            print("[VoiceCommand] installTap (reinstall) failed: \(reason)")
+            self.recognitionRequest = nil
+            return
         }
 
         // Start new recognition task

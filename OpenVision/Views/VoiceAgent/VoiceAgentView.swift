@@ -28,6 +28,9 @@ struct VoiceAgentView: View {
     @State private var aiTranscript = ""
     @State private var currentToolName: String?
     @State private var errorMessage: String?
+    // De-dup: the last command we processed and when (drops duplicate recognizer emissions).
+    @State private var lastProcessedCommand = ""
+    @State private var lastProcessedAt = Date.distantPast
     @State private var audioLevel: CGFloat = 0
     @State private var hasRequestedSpeechAuth = false
 
@@ -678,6 +681,11 @@ struct VoiceAgentView: View {
     /// Setup AI service callbacks for receiving responses
     private func setupAIServiceCallbacks() {
         // Local Gemma callbacks
+        GemmaLocalService.shared.onPartialResponse = { (partial: String) in
+            guard self.isSessionActive else { return }
+            // Show tokens as they stream so it doesn't look stuck on "thinking".
+            self.aiTranscript = partial
+        }
         GemmaLocalService.shared.onAgentMessage = { (message: String) in
             guard self.isSessionActive else { return }
             self.aiTranscript = message
@@ -846,14 +854,17 @@ struct VoiceAgentView: View {
             return
         }
 
-        // Drop duplicate/overlapping queries while one is already being generated.
-        // The speech recognizer can emit a command more than once (partial + final);
-        // without this, a photo command fires twice — once before the frame is ready
-        // (text-only → "please provide an image") and once with the photo.
-        if agentState == .thinking || agentState == .toolRunning {
-            print("[VoiceAgentView] Ignoring overlapping command — already processing: \(command)")
+        // Drop only EXACT-duplicate commands fired within a few seconds. The speech
+        // recognizer can emit the same phrase twice (partial + final), which double-fired
+        // photo capture. A *different* follow-up question must still go through, even while
+        // the previous answer is generating/speaking.
+        let now = Date()
+        if command == lastProcessedCommand, now.timeIntervalSince(lastProcessedAt) < 4 {
+            print("[VoiceAgentView] Ignoring duplicate command within 4s: \(command)")
             return
         }
+        lastProcessedCommand = command
+        lastProcessedAt = now
 
         agentState = .thinking
 
@@ -1133,17 +1144,28 @@ struct VoiceAgentView: View {
         }
 
         if glassesManager.isStreaming {
-            // Capture from glasses camera
-            print("[VoiceAgentView] Capturing from glasses...")
+            NSLog("[OV] capturing photo (one-shot)…")
             imageData = await capturePhotoFromGlasses()
-        } else {
-            print("[VoiceAgentView] Stream not active, checking for last frame...")
         }
 
-        // Fallback to last frame if we have one
-        if imageData == nil, let lastFrame = glassesManager.lastFrame {
-            print("[VoiceAgentView] Using last frame...")
-            imageData = lastFrame.jpegData(compressionQuality: 0.8)
+        // Fallback: force a FRESH live video frame. This is more reliable on repeat than the
+        // one-shot capture (which can stop delivering after the first photo), and it restarts
+        // the stream if it has stalled.
+        if imageData == nil {
+            imageData = await freshLiveFrame()
+        }
+
+        NSLog("[OV] captureAndSendPhoto result: %@ (streaming=%@, registered=%@)",
+              imageData == nil ? "NO IMAGE" : "\(imageData!.count) bytes",
+              glassesManager.isStreaming ? "yes" : "no",
+              glassesManager.isRegistered ? "yes" : "no")
+
+        // "Click and go": now that we have the photo, turn the glasses camera off immediately —
+        // before the (multi-second) model inference — so the LED doesn't stay on. Repeat photo
+        // commands restart the camera reliably via freshLiveFrame(). Skip in live video mode.
+        if imageData != nil && glassesManager.isStreaming && !isLiveVideoMode {
+            NSLog("[OV] photo captured — stopping camera (click and go)")
+            await glassesManager.stopStreaming()
         }
 
         // Send with or without image
@@ -1151,17 +1173,12 @@ struct VoiceAgentView: View {
             if let imageData = imageData {
                 NSLog("[OV] Sending message with photo (%d bytes)", imageData.count)
                 try await sendPromptToActiveBackend(prompt, imageData: imageData)
-
-                // Keep the camera stream alive for the rest of the session — stopping and
-                // restarting it per photo made follow-up captures race and time out (returning
-                // nil → "please provide an image"). The stream is stopped when the session ends.
             } else {
-                NSLog("[OV] No image available — capture returned nil; sending text only")
-                // Provide more helpful message
-                let note = glassesManager.isRegistered
-                    ? " (Note: Camera is not available right now. Try starting the camera from Settings > Glasses first.)"
-                    : " (Note: Smart glasses not connected. Please register in Settings.)"
-                try await sendPromptToActiveBackend(prompt + note, imageData: nil)
+                NSLog("[OV] No image available — capture returned nil; NOT sending to model")
+                // Don't send a degraded text-only prompt to the model — that's what makes it
+                // reply "please provide an image". Tell the user directly and stop.
+                errorMessage = "Couldn't capture a photo (streaming: \(glassesManager.isStreaming ? "on" : "off"), registered: \(glassesManager.isRegistered ? "yes" : "no")). Try again."
+                speakResponse("I couldn't get a photo from the glasses. Please try again.")
             }
         } catch {
             print("[VoiceAgentView] Failed to send: \(error)")
@@ -1193,6 +1210,39 @@ struct VoiceAgentView: View {
         }
 
         NSLog("[OV] Photo capture TIMED OUT after 5s")
+        return nil
+    }
+
+    /// Force a fresh live video frame, restarting the stream if it has stalled.
+    /// More reliable than the one-shot photo capture for repeated requests in a session.
+    private func freshLiveFrame() async -> Data? {
+        guard glassesManager.isRegistered else { return nil }
+        if !glassesManager.isStreaming {
+            await glassesManager.startStreaming()
+        }
+        // Wait for a NEW frame (clear first so we don't reuse a stale one).
+        glassesManager.lastFrame = nil
+        for _ in 0..<25 { // up to ~2.5s
+            if let f = glassesManager.lastFrame {
+                NSLog("[OV] fresh live frame acquired")
+                return f.jpegData(compressionQuality: 0.8)
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        // Stream appears stalled — restart it once and retry.
+        NSLog("[OV] live frame stalled — restarting stream")
+        await glassesManager.stopStreaming()
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        await glassesManager.startStreaming()
+        glassesManager.lastFrame = nil
+        for _ in 0..<30 { // up to ~3s
+            if let f = glassesManager.lastFrame {
+                NSLog("[OV] fresh live frame acquired after restart")
+                return f.jpegData(compressionQuality: 0.8)
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        NSLog("[OV] freshLiveFrame: STILL no frame after restart")
         return nil
     }
 
