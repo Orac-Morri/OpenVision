@@ -1104,6 +1104,27 @@ struct VoiceAgentView: View {
     }
 
     /// Capture photo and send to OpenClaw with the user's prompt
+    /// Turn a spoken photo command into a clean vision question for a model that already has
+    /// the image attached. Removes "take a picture / photo" trigger wording so the model
+    /// describes the image instead of protesting that it can't take photos.
+    private func visionPromptFromCommand(_ command: String) -> String {
+        var s = command.lowercased()
+        let triggers = [
+            "take a picture of this", "take a photo of this", "take a picture", "take a photo",
+            "take photo", "take picture", "capture a photo", "capture photo", "snap a photo",
+            "snap a picture", "can you", "could you", "would you", "please", "for me", "of this",
+            "right now", "go ahead and"
+        ]
+        for t in triggers { s = s.replacingOccurrences(of: t, with: " ") }
+        s = s.replacingOccurrences(of: "  ", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasPrefix("and ") { s = String(s.dropFirst(4)) }
+        s = s.trimmingCharacters(in: CharacterSet(charactersIn: " ,.?!"))
+        if s.count < 3 {
+            return "What is the main object in this image? Name it specifically and describe its key visible details in 2–3 sentences."
+        }
+        return "Look closely at the image and answer specifically and concretely: \(s)"
+    }
+
     /// Send a prompt (optionally with a photo) to whichever backend is currently selected.
     private func sendPromptToActiveBackend(_ prompt: String, imageData: Data?) async throws {
         switch settingsManager.settings.aiBackend {
@@ -1143,17 +1164,11 @@ struct VoiceAgentView: View {
             }
         }
 
-        if glassesManager.isStreaming {
-            NSLog("[OV] capturing photo (one-shot)…")
-            imageData = await capturePhotoFromGlasses()
-        }
-
-        // Fallback: force a FRESH live video frame. This is more reliable on repeat than the
-        // one-shot capture (which can stop delivering after the first photo), and it restarts
-        // the stream if it has stalled.
-        if imageData == nil {
-            imageData = await freshLiveFrame()
-        }
+        // Capture straight from the live video stream. The glasses' one-shot photo API
+        // (session.capturePhoto) doesn't reliably deliver on this model/SDK — it times out
+        // after 5s — whereas a live frame is available immediately. freshLiveFrame() ensures
+        // the stream is running, waits for a fresh frame, and restarts a stalled stream.
+        imageData = await freshLiveFrame()
 
         NSLog("[OV] captureAndSendPhoto result: %@ (streaming=%@, registered=%@)",
               imageData == nil ? "NO IMAGE" : "\(imageData!.count) bytes",
@@ -1171,8 +1186,11 @@ struct VoiceAgentView: View {
         // Send with or without image
         do {
             if let imageData = imageData {
-                NSLog("[OV] Sending message with photo (%d bytes)", imageData.count)
-                try await sendPromptToActiveBackend(prompt, imageData: imageData)
+                // The image is attached, so strip the "take a picture" wording — otherwise the
+                // VLM replies "I can't take photos / please provide an image" before describing.
+                let visionPrompt = visionPromptFromCommand(prompt)
+                NSLog("[OV] Sending message with photo (%d bytes), prompt: \"%@\"", imageData.count, visionPrompt)
+                try await sendPromptToActiveBackend(visionPrompt, imageData: imageData)
             } else {
                 NSLog("[OV] No image available — capture returned nil; NOT sending to model")
                 // Don't send a degraded text-only prompt to the model — that's what makes it

@@ -15,6 +15,7 @@
 
 import Foundation
 import CoreImage
+import UIKit            // UIApplication.applicationState — GPU inference is forbidden in background
 import MLX
 import MLXVLM            // native Gemma 4 vision-language model (text + image)
 import MLXLMCommon
@@ -90,6 +91,8 @@ final class GemmaLocalService: ObservableObject {
     private var modelContainer: ModelContainer?
     private var loadedModelId: String?
     private var cancelRequested = false
+    private var generationID = 0   // bumped per request; stale generations stay silent
+    private var enteredBackgroundDuringGeneration = false
 
     // mlx-swift-lm 3.31.3 ships a native Gemma 4 VLM (text + vision) registered in
     // VLMModelFactory, so no custom model registration is needed.
@@ -123,6 +126,11 @@ final class GemmaLocalService: ObservableObject {
         print("[GemmaLocal] connect(\(modelId)) — already loaded: \(loadedModelId == modelId && modelContainer != nil)")
         if loadedModelId == modelId, modelContainer != nil {
             setState(.connected); return
+        }
+        // Loading materializes model weights on the GPU (Metal), which iOS forbids in the
+        // background — doing so raises an uncatchable exception that kills the app.
+        guard UIApplication.shared.applicationState != .background else {
+            throw GemmaLocalError.backgrounded
         }
         setState(.connecting)
         isProcessing = false
@@ -172,14 +180,20 @@ final class GemmaLocalService: ObservableObject {
             print("[GemmaLocal] ✗ model NOT loaded — throwing")
             throw GemmaLocalError.modelNotLoaded
         }
+        // Per-token GPU work crashes (uncatchably) if the app is in the background. Refuse early.
+        guard UIApplication.shared.applicationState != .background else {
+            throw GemmaLocalError.backgrounded
+        }
         setProcessing(true)
         cancelRequested = false
         defer { setProcessing(false) }
 
         var images: [UserInput.Image] = []
         if let data = imageData, var ciImage = CIImage(data: data) {
-            // Downscale large frames before the vision encoder to keep peak memory down.
-            let maxDim: CGFloat = 1024
+            // Downscale frames before the vision encoder — memory scales with image area, and
+            // the VLM + image was hitting the ~6GB jetsam limit. 768px keeps detail but is ~⅔ the
+            // pixels of 1024 (and Gemma's vision works around this size anyway).
+            let maxDim: CGFloat = 768
             let longest = max(ciImage.extent.width, ciImage.extent.height)
             if longest > maxDim {
                 let scale = maxDim / longest
@@ -188,27 +202,52 @@ final class GemmaLocalService: ObservableObject {
             images.append(.ciImage(ciImage))
         }
 
+        // Keep replies short — this is spoken aloud on glasses, so long answers get tiresome
+        // (and the TTS cuts off after ~a minute). Aim for a couple of natural sentences.
+        let brevity = "You are a hands-free voice assistant for smart glasses. Reply in 2–4 natural sentences — enough detail to be genuinely useful and give a real sense of things, but brief enough to hear comfortably (around 20–30 seconds). Be specific and concrete, not vague. When describing an image, name the main object and mention its key visible details. No lists, no markdown, no preamble; just answer."
+        let userSys = SettingsManager.shared.settings.userPrompt
+        let systemContent = userSys.isEmpty ? brevity : "\(userSys)\n\n\(brevity)"
+
         var chat: [Chat.Message] = []
-        let systemPrompt = SettingsManager.shared.settings.userPrompt
-        if !systemPrompt.isEmpty {
-            chat.append(.init(role: .system, content: systemPrompt))
-        }
+        chat.append(.init(role: .system, content: systemContent))
         chat.append(.init(role: .user, content: text, images: images))
         let userInput = UserInput(chat: chat)
+
+        // Tag this generation. If a newer request starts, older ones stop and stay silent —
+        // prevents a stale reply (e.g. a previous photo's description) bleeding into a new answer.
+        generationID &+= 1
+        let myID = generationID
+
+        // Watch for the app backgrounding mid-generation — the next per-token Metal eval would
+        // crash uncatchably, so we stop before it (OpenGlasses' pattern).
+        enteredBackgroundDuringGeneration = false
+        let bgObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.enteredBackgroundDuringGeneration = true }
+        }
+        defer { NotificationCenter.default.removeObserver(bgObserver) }
 
         NSLog("[OV] GemmaLocal: starting generation…")
         let stream = try await container.perform { (context: ModelContext) in
             let lmInput = try await context.processor.prepare(input: userInput)
-            // Cap output length — without this, generation can run for minutes on-device and
-            // the UI sits on "thinking". 220 tokens ≈ a few short spoken sentences.
-            let parameters = GenerateParameters(maxTokens: 220, temperature: 0.7)
+            // Cap output length — spoken aloud, so keep it to a few sentences (~30s of speech).
+            let parameters = GenerateParameters(maxTokens: 170, temperature: 0.4)
             return try MLXLMCommon.generate(input: lmInput, parameters: parameters, context: context)
         }
 
         var full = ""
         var tokenCount = 0
-        for await item in stream {
-            if cancelRequested { break }
+        // Drive the iterator manually so we can bail BEFORE requesting the next token (i.e.
+        // before MLX submits the next Metal command buffer) when the app is backgrounded.
+        var iterator = stream.makeAsyncIterator()
+        while true {
+            if cancelRequested || myID != generationID { break }
+            if enteredBackgroundDuringGeneration || UIApplication.shared.applicationState == .background {
+                NSLog("[OV] GemmaLocal: backgrounded mid-generation — stopping")
+                break
+            }
+            guard let item = await iterator.next() else { break }
             if case .chunk(let piece) = item {
                 full += piece
                 tokenCount += 1
@@ -218,8 +257,12 @@ final class GemmaLocalService: ObservableObject {
             }
         }
         NSLog("[OV] GemmaLocal: generation done — %d chunks, %d chars", tokenCount, full.count)
+
+        // Release the MLX buffer cache so vision memory doesn't pile up toward the jetsam limit.
+        Memory.clearCache()
+
         let reply = full
-        if !cancelRequested {
+        if !cancelRequested && myID == generationID {
             await MainActor.run { self.onAgentMessage?(reply) }
         }
     }
@@ -243,10 +286,13 @@ final class GemmaLocalService: ObservableObject {
 
     enum GemmaLocalError: LocalizedError {
         case modelNotLoaded
+        case backgrounded
         var errorDescription: String? {
             switch self {
             case .modelNotLoaded:
                 return "The local Gemma model isn't loaded. Download it in Settings → AI Backend → Local (Gemma 4)."
+            case .backgrounded:
+                return "On-device AI can't run while the app is in the background. Bring OpenVision to the foreground."
             }
         }
     }
