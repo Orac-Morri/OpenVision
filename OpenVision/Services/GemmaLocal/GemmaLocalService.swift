@@ -18,6 +18,9 @@ import Foundation
 import MLX
 import MLXLLM
 import MLXLMCommon
+import MLXHuggingFace   // #hubDownloader() / #huggingFaceTokenizerLoader() macros
+import HuggingFace      // the macros expand to HuggingFace.HubClient …
+import Tokenizers       // … and Tokenizers.AutoTokenizer
 
 // MARK: - Selectable on-device models
 
@@ -115,13 +118,16 @@ final class GemmaLocalService: ObservableObject {
         let configuration = ModelConfiguration(id: model.modelId)
         // loadContainer fetches the snapshot if missing; reuse it as the download path.
         _ = try await LLMModelFactory.shared.loadContainer(
-            configuration: configuration
-        ) { [weak self] progress in
-            Task { @MainActor in
-                self?.downloadProgress = progress.fractionCompleted
-                onProgress(progress.fractionCompleted)
+            from: #hubDownloader(),
+            using: #huggingFaceTokenizerLoader(),
+            configuration: configuration,
+            progressHandler: { [weak self] progress in
+                Task { @MainActor in
+                    self?.downloadProgress = progress.fractionCompleted
+                    onProgress(progress.fractionCompleted)
+                }
             }
-        }
+        )
         downloadProgress = 1
     }
 
@@ -142,10 +148,13 @@ final class GemmaLocalService: ObservableObject {
         do {
             let configuration = ModelConfiguration(id: modelId)
             let container = try await LLMModelFactory.shared.loadContainer(
-                configuration: configuration
-            ) { [weak self] progress in
-                Task { @MainActor in self?.downloadProgress = progress.fractionCompleted }
-            }
+                from: #hubDownloader(),
+                using: #huggingFaceTokenizerLoader(),
+                configuration: configuration,
+                progressHandler: { [weak self] progress in
+                    Task { @MainActor in self?.downloadProgress = progress.fractionCompleted }
+                }
+            )
             modelContainer = container
             loadedModelId = modelId
             isModelLoaded = true

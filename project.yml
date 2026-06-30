@@ -64,6 +64,15 @@ targets:
         products:
           - MLXLLM
           - MLXLMCommon
+          - MLXHuggingFace   # #hubDownloader() / #huggingFaceTokenizerLoader()
+      # The macros above expand to HuggingFace.HubClient + Tokenizers.AutoTokenizer; mlx-swift-lm
+      # deliberately doesn't depend on these, so the consumer supplies them (same as OpenGlasses).
+      - package: swift-huggingface
+        products:
+          - HuggingFace
+      - package: swift-transformers
+        products:
+          - Tokenizers
     preBuildScripts:
       - name: "Check Config Files"
         script: |
@@ -76,10 +85,19 @@ targets:
 packages:
   meta-wearables-dat-ios:
     url: https://github.com/facebook/meta-wearables-dat-ios
-    from: 0.4.0
+    # Pinned: 0.7.0+ renamed StreamSession -> Stream/DeviceSession and 0.6.0 made its init
+    # inaccessible. GlassesManager targets the original 0.4.0 API (was `from: 0.4.0`, which
+    # floated to 0.8.0 and broke the build after 4 months of SDK drift).
+    exactVersion: "0.4.0"
   mlx-swift-lm:
     url: https://github.com/ml-explore/mlx-swift-lm.git
     exactVersion: "3.31.3"
+  swift-huggingface:
+    url: https://github.com/huggingface/swift-huggingface.git
+    from: "0.1.0"
+  swift-transformers:
+    url: https://github.com/huggingface/swift-transformers.git
+    from: "1.0.0"
 
 schemes:
   OpenVision:

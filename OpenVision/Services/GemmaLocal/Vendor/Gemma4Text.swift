@@ -38,7 +38,7 @@ public struct Gemma4TextConfiguration: Codable {
     let useDoubleWideMlp: Bool
     let tieWordEmbeddings: Bool
     let layerTypes: [String]?
-    let ropeParameters: [String: [String: AnyCodable]]?
+    let ropeParameters: [String: [String: Gemma4AnyCodable]]?
 
     enum CodingKeys: String, CodingKey {
         case modelType = "model_type"
@@ -99,7 +99,7 @@ public struct Gemma4TextConfiguration: Codable {
         useDoubleWideMlp = try container.decodeIfPresent(Bool.self, forKey: .useDoubleWideMlp) ?? true
         tieWordEmbeddings = try container.decodeIfPresent(Bool.self, forKey: .tieWordEmbeddings) ?? true
         layerTypes = try container.decodeIfPresent([String].self, forKey: .layerTypes)
-        ropeParameters = try container.decodeIfPresent([String: [String: AnyCodable]].self, forKey: .ropeParameters)
+        ropeParameters = try container.decodeIfPresent([String: [String: Gemma4AnyCodable]].self, forKey: .ropeParameters)
     }
 
     var resolvedLayerTypes: [String] {
@@ -137,9 +137,9 @@ public struct Gemma4TextConfiguration: Codable {
     }
 }
 
-// MARK: - AnyCodable helper
+// MARK: - Gemma4AnyCodable helper
 
-public struct AnyCodable: Codable {
+public struct Gemma4AnyCodable: Codable {
     let value: Any
 
     public init(from decoder: Decoder) throws {

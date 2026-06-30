@@ -7,40 +7,47 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		05E45EACAE8C896D7101ADF2 /* Gemma4Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11512A2ACB8CA52D68C79479 /* Gemma4Text.swift */; };
 		0CD9B9D7D0854411C0A04148 /* AIBackendProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900F00D2451513A29BC4C6F /* AIBackendProtocol.swift */; };
 		186FD72F369F1962B15EB858 /* OpenClawService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C539AB340611B1A6CCC50F17 /* OpenClawService.swift */; };
 		1EEA4B0E379A76881244FAB9 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE51DA812A9394A5064F60E /* SettingsView.swift */; };
 		2947D6E5D6D5B7080C53D478 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C27052ECD2FFC79652B5CDB3 /* OnboardingView.swift */; };
 		29F56C03229677BC1F157CEC /* HapticFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD745CF110FC8C25A5B34D8 /* HapticFeedback.swift */; };
 		3069D5D002C64029E1A09728 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E2210A5A20177647BDB5AD /* Config.swift */; };
+		313177DDBE794549925682FA /* GemmaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BFC8380B5BDA0778E04EAB /* GemmaSettingsView.swift */; };
+		33D67E4757C03873F8FED385 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 0DB70D0CA14C70A3B9547241 /* MLXLLM */; };
 		341497F0AA31AE9C6E137386 /* MemoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 484468B5604EFF4051074762 /* MemoriesView.swift */; };
 		342B57112073CFC14CD78614 /* VoiceCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B5A07D9F5C0579C275C597 /* VoiceCommandService.swift */; };
 		359A931F49DDF267F80B07B2 /* AudioPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 529F4C0838CFE7F8F55E28E4 /* AudioPlaybackService.swift */; };
+		3A3AC3A91A768EAE0B643B95 /* VoiceSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FEE8399255B598700D2F1F /* VoiceSelectionView.swift */; };
 		3D871EEF1178A47F4999C7F2 /* AdditionalInstructionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516A0726470BFA8BD9B55F3F /* AdditionalInstructionsView.swift */; };
+		408073C736E7EB74442648EF /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 6ADFD2818BFD4713F6BDA7F7 /* MLXLMCommon */; };
 		52E3A16AB6227CDA3D67817D /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FD4A9B156D92B468B28864 /* AppSettings.swift */; };
 		587295A93FA82DEBB18139BB /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01CC70E5327BD07B920833FC /* GlassCard.swift */; };
 		5C474A09B3067A8ACD7546C1 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B78D6C28BEFF1F8426997C /* AudioCaptureService.swift */; };
-		5C474A09B3067A8ACD7546C2 /* SoundService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B78D6C28BEFF1F8426997D /* SoundService.swift */; };
-		5C474A09B3067A8ACD7546C3 /* wake_word_ding.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = B2B78D6C28BEFF1F8426997E /* wake_word_ding.mp3 */; };
-		5C474A09B3067A8ACD7546C4 /* thinking_loop.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = B2B78D6C28BEFF1F8426997F /* thinking_loop.mp3 */; };
+		62B472287A9628E0E6FB377D /* GemmaLocalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBB8B07B4970CA5F63B3B2A /* GemmaLocalService.swift */; };
 		6878487E101CAC3A8BF651E9 /* AnimatedBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41F6DCD4CB868C1A5711F96D /* AnimatedBackground.swift */; };
+		6C065C29CC13488E67A70363 /* SoundService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2B8AE1E195B62D980BEA66 /* SoundService.swift */; };
+		6E678BA570E5148EE9D9B4FE /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = CCBF8A11015C4FD6F78FF103 /* HuggingFace */; };
 		6F8F4FD14445FC3FE1A771D2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2410F1B11CD5A7070F3E7590 /* Assets.xcassets */; };
 		758F66B632E8A1CBDBB40094 /* OpenClawSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFCA981F220C3F978645D70 /* OpenClawSettingsView.swift */; };
 		7694BA570FF3ACCF29E2C5C9 /* GeminiLiveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADCFF581A7AE50FBF35EA257 /* GeminiLiveService.swift */; };
-		7694BA580FF3ACCF29E2C5D0 /* GeminiVisionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADCFF581A7AE50FBF35EA258 /* GeminiVisionService.swift */; };
 		788325C7CD43F35F069DCDCE /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E89F8710F8A609C73C717C0 /* ConversationListView.swift */; };
 		79C519EDCA508C00DAAB1F6E /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42C04946FFC3B3A9DE78573 /* VoiceSettingsView.swift */; };
-		79C519EDCA508C00DAAB1F6F /* VoiceSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42C04946FFC3B3A9DE78574 /* VoiceSelectionView.swift */; };
+		7C118644498027D47E828115 /* wake_word_ding.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 98C627C6F13B708A7A8D2CDA /* wake_word_ding.mp3 */; };
 		81F38E617E61131E8C87620B /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = A7FF778329794C28B434EEAA /* MWDATCore */; };
 		8BB3557D9BE4E9F2399BDBC1 /* VoiceAgentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 601D21AA8114E457F40C6C4A /* VoiceAgentView.swift */; };
 		A7A3B0467B07F116AEF20BEE /* AudioSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA55F18F98C8B110680989C /* AudioSessionManager.swift */; };
 		AF2C901CA288086B7EBA6083 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7376B3EE1F53DF1BD56B1095 /* Constants.swift */; };
 		B72ACD1B63980B9C4BBC7B8E /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 0DEB724AE3EDB04ABE9E3768 /* MWDATCamera */; };
+		B82C3BB7AED7C2367F729678 /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 4169E6A87853A9ECECC3C6E4 /* MLXHuggingFace */; };
 		BE99A2B1118292BBC7E1FC59 /* GlassesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD25C635E9A37E7D6CA7677 /* GlassesManager.swift */; };
+		BFC445B65C5C0BE610EC719E /* GeminiVisionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2612B6630DAE1360F7FBFEE5 /* GeminiVisionService.swift */; };
 		BFD9D5E86289F987AC6931B8 /* TranscriptBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E256E8AF9CAB4123C91B979 /* TranscriptBubble.swift */; };
 		C328DABCDFDF6531B38D4834 /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D416290774C17FDC0DDFBC68 /* TTSService.swift */; };
 		C3B4CF9D8B6EC21957CC7BEF /* OpenClawProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7946C8232CEA5A362056AC2A /* OpenClawProtocol.swift */; };
 		CDA89E5AAAF25713C6321971 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266032AAD0DF8037A64CAB15 /* MainTabView.swift */; };
+		D78274C690CE91F7747815F8 /* thinking_loop.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 3846720B6096149DBB5ED5A9 /* thinking_loop.mp3 */; };
 		DBAD28D914AC862DB5E6F367 /* ConversationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCCC84E6880175BD83F37FD /* ConversationManager.swift */; };
 		E002D977473CAE9959691682 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6188DD26571BACB30096654D /* Conversation.swift */; };
 		E93E2788532682366707A34D /* GlassesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED25EC5E800C216965A50F8A /* GlassesSettingsView.swift */; };
@@ -48,14 +55,18 @@
 		F1D86E9A3AB2A994A205AB83 /* GeminiSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773753CA73EBA9F8C78BD8E4 /* GeminiSettingsView.swift */; };
 		F7718545E4E6BB4A7773B564 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC230E2AE44E5132DC5AB01 /* SettingsManager.swift */; };
 		FCFECBF332943E64812DC931 /* AIBackendSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A8327E5265287A0C89DE3D /* AIBackendSettingsView.swift */; };
+		FFFDF7E8B3F8E6A194E1571E /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = 8F8A2A9D74F79603F186C7B4 /* Tokenizers */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		01CC70E5327BD07B920833FC /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
 		0E256E8AF9CAB4123C91B979 /* TranscriptBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptBubble.swift; sourceTree = "<group>"; };
+		11512A2ACB8CA52D68C79479 /* Gemma4Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gemma4Text.swift; sourceTree = "<group>"; };
 		2410F1B11CD5A7070F3E7590 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		2612B6630DAE1360F7FBFEE5 /* GeminiVisionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiVisionService.swift; sourceTree = "<group>"; };
 		266032AAD0DF8037A64CAB15 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		2E89F8710F8A609C73C717C0 /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
+		3846720B6096149DBB5ED5A9 /* thinking_loop.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = thinking_loop.mp3; sourceTree = "<group>"; };
 		3DA55F18F98C8B110680989C /* AudioSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionManager.swift; sourceTree = "<group>"; };
 		3DE51DA812A9394A5064F60E /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		41F6DCD4CB868C1A5711F96D /* AnimatedBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedBackground.swift; sourceTree = "<group>"; };
@@ -66,33 +77,34 @@
 		601D21AA8114E457F40C6C4A /* VoiceAgentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAgentView.swift; sourceTree = "<group>"; };
 		60E2210A5A20177647BDB5AD /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		6188DD26571BACB30096654D /* Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversation.swift; sourceTree = "<group>"; };
-		68515F672E50ED4EAC242CD0 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		7376B3EE1F53DF1BD56B1095 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		773753CA73EBA9F8C78BD8E4 /* GeminiSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiSettingsView.swift; sourceTree = "<group>"; };
 		7946C8232CEA5A362056AC2A /* OpenClawProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawProtocol.swift; sourceTree = "<group>"; };
 		8601201988376029090B1EAA /* OpenVision.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OpenVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8DD25C635E9A37E7D6CA7677 /* GlassesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesManager.swift; sourceTree = "<group>"; };
+		98C627C6F13B708A7A8D2CDA /* wake_word_ding.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = wake_word_ding.mp3; sourceTree = "<group>"; };
 		9BCCC84E6880175BD83F37FD /* ConversationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationManager.swift; sourceTree = "<group>"; };
 		A900F00D2451513A29BC4C6F /* AIBackendProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIBackendProtocol.swift; sourceTree = "<group>"; };
 		ADC230E2AE44E5132DC5AB01 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
 		ADCFF581A7AE50FBF35EA257 /* GeminiLiveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiLiveService.swift; sourceTree = "<group>"; };
-		ADCFF581A7AE50FBF35EA258 /* GeminiVisionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiVisionService.swift; sourceTree = "<group>"; };
 		B2B78D6C28BEFF1F8426997C /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
-		B2B78D6C28BEFF1F8426997D /* SoundService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundService.swift; sourceTree = "<group>"; };
-		B2B78D6C28BEFF1F8426997E /* wake_word_ding.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = wake_word_ding.mp3; sourceTree = "<group>"; };
-		B2B78D6C28BEFF1F8426997F /* thinking_loop.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = thinking_loop.mp3; sourceTree = "<group>"; };
 		B2FD4A9B156D92B468B28864 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		C1BFC8380B5BDA0778E04EAB /* GemmaSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaSettingsView.swift; sourceTree = "<group>"; };
 		C27052ECD2FFC79652B5CDB3 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		C2B5A07D9F5C0579C275C597 /* VoiceCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandService.swift; sourceTree = "<group>"; };
+		C2FFA22452C8901C2424D466 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		C3FFDFCB5AA5A664CC70E183 /* OpenVisionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenVisionApp.swift; sourceTree = "<group>"; };
 		C42C04946FFC3B3A9DE78573 /* VoiceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSettingsView.swift; sourceTree = "<group>"; };
-		C42C04946FFC3B3A9DE78574 /* VoiceSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSelectionView.swift; sourceTree = "<group>"; };
 		C539AB340611B1A6CCC50F17 /* OpenClawService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawService.swift; sourceTree = "<group>"; };
 		CAD745CF110FC8C25A5B34D8 /* HapticFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticFeedback.swift; sourceTree = "<group>"; };
+		CD4FA0CB22EEECC836B2C5A5 /* LICENSE-gemma4-ios */ = {isa = PBXFileReference; path = "LICENSE-gemma4-ios"; sourceTree = "<group>"; };
+		CE2B8AE1E195B62D980BEA66 /* SoundService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundService.swift; sourceTree = "<group>"; };
 		D416290774C17FDC0DDFBC68 /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
+		DFBB8B07B4970CA5F63B3B2A /* GemmaLocalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaLocalService.swift; sourceTree = "<group>"; };
 		E553EFA930E3B93EEA8F0AB6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EAFCA981F220C3F978645D70 /* OpenClawSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawSettingsView.swift; sourceTree = "<group>"; };
 		ED25EC5E800C216965A50F8A /* GlassesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesSettingsView.swift; sourceTree = "<group>"; };
+		F1FEE8399255B598700D2F1F /* VoiceSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSelectionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,6 +114,11 @@
 			files = (
 				81F38E617E61131E8C87620B /* MWDATCore in Frameworks */,
 				B72ACD1B63980B9C4BBC7B8E /* MWDATCamera in Frameworks */,
+				33D67E4757C03873F8FED385 /* MLXLLM in Frameworks */,
+				408073C736E7EB74442648EF /* MLXLMCommon in Frameworks */,
+				B82C3BB7AED7C2367F729678 /* MLXHuggingFace in Frameworks */,
+				6E678BA570E5148EE9D9B4FE /* HuggingFace in Frameworks */,
+				FFFDF7E8B3F8E6A194E1571E /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,11 +131,12 @@
 				516A0726470BFA8BD9B55F3F /* AdditionalInstructionsView.swift */,
 				57A8327E5265287A0C89DE3D /* AIBackendSettingsView.swift */,
 				773753CA73EBA9F8C78BD8E4 /* GeminiSettingsView.swift */,
+				C1BFC8380B5BDA0778E04EAB /* GemmaSettingsView.swift */,
 				ED25EC5E800C216965A50F8A /* GlassesSettingsView.swift */,
 				484468B5604EFF4051074762 /* MemoriesView.swift */,
 				EAFCA981F220C3F978645D70 /* OpenClawSettingsView.swift */,
 				3DE51DA812A9394A5064F60E /* SettingsView.swift */,
-				C42C04946FFC3B3A9DE78574 /* VoiceSelectionView.swift */,
+				F1FEE8399255B598700D2F1F /* VoiceSelectionView.swift */,
 				C42C04946FFC3B3A9DE78573 /* VoiceSettingsView.swift */,
 			);
 			path = Settings;
@@ -143,17 +161,9 @@
 				D77F9080898B1259B3CAC33D /* Resources */,
 				73C8E684016E1E082B6511F2 /* Services */,
 				35DFB6AFBC95C8461F7FE361 /* Utilities */,
-				8F5675211FEF497D91D74202 /* ViewModels */,
 				198BDC47F90490C1B36B7B72 /* Views */,
 			);
 			path = OpenVision;
-			sourceTree = "<group>";
-		};
-		108E2E4F23FDA5DA322DEA5D /* Extensions */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Extensions;
 			sourceTree = "<group>";
 		};
 		1809BD830DBC630F8C825889 /* Config */ = {
@@ -181,7 +191,7 @@
 			isa = PBXGroup;
 			children = (
 				ADCFF581A7AE50FBF35EA257 /* GeminiLiveService.swift */,
-				ADCFF581A7AE50FBF35EA258 /* GeminiVisionService.swift */,
+				2612B6630DAE1360F7FBFEE5 /* GeminiVisionService.swift */,
 			);
 			path = GeminiLive;
 			sourceTree = "<group>";
@@ -189,7 +199,6 @@
 		35DFB6AFBC95C8461F7FE361 /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
-				108E2E4F23FDA5DA322DEA5D /* Extensions */,
 				6FD79E4F6FC7AFD859C7CF97 /* Helpers */,
 			);
 			path = Utilities;
@@ -201,6 +210,15 @@
 				8601201988376029090B1EAA /* OpenVision.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		4B4D562A6CB5F6F5F2A2A04E /* Vendor */ = {
+			isa = PBXGroup;
+			children = (
+				11512A2ACB8CA52D68C79479 /* Gemma4Text.swift */,
+				CD4FA0CB22EEECC836B2C5A5 /* LICENSE-gemma4-ios */,
+			);
+			path = Vendor;
 			sourceTree = "<group>";
 		};
 		4EED49775404F3FCDDF6904A /* History */ = {
@@ -217,15 +235,6 @@
 				C2B5A07D9F5C0579C275C597 /* VoiceCommandService.swift */,
 			);
 			path = Voice;
-			sourceTree = "<group>";
-		};
-		5EDFA2DFDC5CEBD061F21831 /* meta-vision */ = {
-			isa = PBXGroup;
-			children = (
-				68515F672E50ED4EAC242CD0 /* Config.xcconfig */,
-			);
-			name = "meta-vision";
-			path = .;
 			sourceTree = "<group>";
 		};
 		6F88A349C5879912D099B630 /* App */ = {
@@ -257,13 +266,22 @@
 			children = (
 				F5B2AD1E1FABED62439F7733 /* AIBackend */,
 				A29C7061AA685E560166CE85 /* Audio */,
-				8E63FD05660B86DF84DCAF42 /* Camera */,
 				2250FA48F206C7E76373000D /* GeminiLive */,
+				B929FE4E9AB889620F64C057 /* GemmaLocal */,
 				867CD5E802B9354B21C23D0B /* OpenClaw */,
 				C6EBF5734AD805262779ECA5 /* TTS */,
 				500CF1A1CC87EC3E3E60B086 /* Voice */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		792E8D9249D5790897D4615F /* OpenVision */ = {
+			isa = PBXGroup;
+			children = (
+				C2FFA22452C8901C2424D466 /* Config.xcconfig */,
+			);
+			name = OpenVision;
+			path = .;
 			sourceTree = "<group>";
 		};
 		867CD5E802B9354B21C23D0B /* OpenClaw */ = {
@@ -275,27 +293,13 @@
 			path = OpenClaw;
 			sourceTree = "<group>";
 		};
-		8E63FD05660B86DF84DCAF42 /* Camera */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Camera;
-			sourceTree = "<group>";
-		};
-		8F5675211FEF497D91D74202 /* ViewModels */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = ViewModels;
-			sourceTree = "<group>";
-		};
 		A29C7061AA685E560166CE85 /* Audio */ = {
 			isa = PBXGroup;
 			children = (
 				B2B78D6C28BEFF1F8426997C /* AudioCaptureService.swift */,
 				529F4C0838CFE7F8F55E28E4 /* AudioPlaybackService.swift */,
 				3DA55F18F98C8B110680989C /* AudioSessionManager.swift */,
-				B2B78D6C28BEFF1F8426997D /* SoundService.swift */,
+				CE2B8AE1E195B62D980BEA66 /* SoundService.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -310,6 +314,15 @@
 			path = Managers;
 			sourceTree = "<group>";
 		};
+		B929FE4E9AB889620F64C057 /* GemmaLocal */ = {
+			isa = PBXGroup;
+			children = (
+				4B4D562A6CB5F6F5F2A2A04E /* Vendor */,
+				DFBB8B07B4970CA5F63B3B2A /* GemmaLocalService.swift */,
+			);
+			path = GemmaLocal;
+			sourceTree = "<group>";
+		};
 		C6EBF5734AD805262779ECA5 /* TTS */ = {
 			isa = PBXGroup;
 			children = (
@@ -318,10 +331,19 @@
 			path = TTS;
 			sourceTree = "<group>";
 		};
+		CDC538C538178747352D72C8 /* Sounds */ = {
+			isa = PBXGroup;
+			children = (
+				3846720B6096149DBB5ED5A9 /* thinking_loop.mp3 */,
+				98C627C6F13B708A7A8D2CDA /* wake_word_ding.mp3 */,
+			);
+			path = Sounds;
+			sourceTree = "<group>";
+		};
 		D77F9080898B1259B3CAC33D /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				F279F8581FFE40A310A7156F /* Sounds */,
+				CDC538C538178747352D72C8 /* Sounds */,
 				2410F1B11CD5A7070F3E7590 /* Assets.xcassets */,
 				E553EFA930E3B93EEA8F0AB6 /* Info.plist */,
 			);
@@ -331,19 +353,10 @@
 		D9DC12520CB3397EA85B9636 = {
 			isa = PBXGroup;
 			children = (
-				5EDFA2DFDC5CEBD061F21831 /* meta-vision */,
 				09EB633ED6C10098514FA100 /* OpenVision */,
+				792E8D9249D5790897D4615F /* OpenVision */,
 				36F672D5AB5BCE7D4C73AA30 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		F279F8581FFE40A310A7156F /* Sounds */ = {
-			isa = PBXGroup;
-			children = (
-				B2B78D6C28BEFF1F8426997E /* wake_word_ding.mp3 */,
-				B2B78D6C28BEFF1F8426997F /* thinking_loop.mp3 */,
-			);
-			path = Sounds;
 			sourceTree = "<group>";
 		};
 		F5B2AD1E1FABED62439F7733 /* AIBackend */ = {
@@ -385,6 +398,11 @@
 			packageProductDependencies = (
 				A7FF778329794C28B434EEAA /* MWDATCore */,
 				0DEB724AE3EDB04ABE9E3768 /* MWDATCamera */,
+				0DB70D0CA14C70A3B9547241 /* MLXLLM */,
+				6ADFD2818BFD4713F6BDA7F7 /* MLXLMCommon */,
+				4169E6A87853A9ECECC3C6E4 /* MLXHuggingFace */,
+				CCBF8A11015C4FD6F78FF103 /* HuggingFace */,
+				8F8A2A9D74F79603F186C7B4 /* Tokenizers */,
 			);
 			productName = OpenVision;
 			productReference = 8601201988376029090B1EAA /* OpenVision.app */;
@@ -417,6 +435,9 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				F7EEA1ED9999A23C56A77DE0 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */,
+				ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				15C5A08D3F97FF9BA942B321 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
+				922ADEF49EB5DA6AD8635D76 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
@@ -433,8 +454,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				6F8F4FD14445FC3FE1A771D2 /* Assets.xcassets in Resources */,
-				5C474A09B3067A8ACD7546C3 /* wake_word_ding.mp3 in Resources */,
-				5C474A09B3067A8ACD7546C4 /* thinking_loop.mp3 in Resources */,
+				D78274C690CE91F7747815F8 /* thinking_loop.mp3 in Resources */,
+				7C118644498027D47E828115 /* wake_word_ding.mp3 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -481,8 +502,11 @@
 				788325C7CD43F35F069DCDCE /* ConversationListView.swift in Sources */,
 				DBAD28D914AC862DB5E6F367 /* ConversationManager.swift in Sources */,
 				7694BA570FF3ACCF29E2C5C9 /* GeminiLiveService.swift in Sources */,
-				7694BA580FF3ACCF29E2C5D0 /* GeminiVisionService.swift in Sources */,
 				F1D86E9A3AB2A994A205AB83 /* GeminiSettingsView.swift in Sources */,
+				BFC445B65C5C0BE610EC719E /* GeminiVisionService.swift in Sources */,
+				05E45EACAE8C896D7101ADF2 /* Gemma4Text.swift in Sources */,
+				62B472287A9628E0E6FB377D /* GemmaLocalService.swift in Sources */,
+				313177DDBE794549925682FA /* GemmaSettingsView.swift in Sources */,
 				587295A93FA82DEBB18139BB /* GlassCard.swift in Sources */,
 				BE99A2B1118292BBC7E1FC59 /* GlassesManager.swift in Sources */,
 				E93E2788532682366707A34D /* GlassesSettingsView.swift in Sources */,
@@ -496,12 +520,12 @@
 				EF5319DFC76B8BD9A50EF195 /* OpenVisionApp.swift in Sources */,
 				F7718545E4E6BB4A7773B564 /* SettingsManager.swift in Sources */,
 				1EEA4B0E379A76881244FAB9 /* SettingsView.swift in Sources */,
-				5C474A09B3067A8ACD7546C2 /* SoundService.swift in Sources */,
+				6C065C29CC13488E67A70363 /* SoundService.swift in Sources */,
 				C328DABCDFDF6531B38D4834 /* TTSService.swift in Sources */,
 				BFD9D5E86289F987AC6931B8 /* TranscriptBubble.swift in Sources */,
 				8BB3557D9BE4E9F2399BDBC1 /* VoiceAgentView.swift in Sources */,
 				342B57112073CFC14CD78614 /* VoiceCommandService.swift in Sources */,
-				79C519EDCA508C00DAAB1F6F /* VoiceSelectionView.swift in Sources */,
+				3A3AC3A91A768EAE0B643B95 /* VoiceSelectionView.swift in Sources */,
 				79C519EDCA508C00DAAB1F6E /* VoiceSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -529,7 +553,7 @@
 		};
 		8A6B19C8915C29C3977C6E19 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 68515F672E50ED4EAC242CD0 /* Config.xcconfig */;
+			baseConfigurationReference = C2FFA22452C8901C2424D466 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				APP_LINK_URL_SCHEME = "${APP_LINK_URL_SCHEME}";
@@ -585,7 +609,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INFOPLIST_FILE = OpenVision/Resources/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0.0;
 				META_APP_ID = "${META_APP_ID}";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -620,7 +644,7 @@
 		};
 		EDC80FB50C117FAB5AC2A1AB /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 68515F672E50ED4EAC242CD0 /* Config.xcconfig */;
+			baseConfigurationReference = C2FFA22452C8901C2424D466 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				APP_LINK_URL_SCHEME = "${APP_LINK_URL_SCHEME}";
@@ -670,7 +694,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INFOPLIST_FILE = OpenVision/Resources/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0.0;
 				META_APP_ID = "${META_APP_ID}";
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -708,26 +732,75 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		15C5A08D3F97FF9BA942B321 /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-huggingface.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
+			};
+		};
+		922ADEF49EB5DA6AD8635D76 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+		ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm.git";
+			requirement = {
+				kind = exactVersion;
+				version = 3.31.3;
+			};
+		};
 		F7EEA1ED9999A23C56A77DE0 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.4.0;
+				kind = exactVersion;
+				version = 0.4.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		0DB70D0CA14C70A3B9547241 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
 		0DEB724AE3EDB04ABE9E3768 /* MWDATCamera */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F7EEA1ED9999A23C56A77DE0 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
 			productName = MWDATCamera;
 		};
+		4169E6A87853A9ECECC3C6E4 /* MLXHuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXHuggingFace;
+		};
+		6ADFD2818BFD4713F6BDA7F7 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+		8F8A2A9D74F79603F186C7B4 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 922ADEF49EB5DA6AD8635D76 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
+		};
 		A7FF778329794C28B434EEAA /* MWDATCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F7EEA1ED9999A23C56A77DE0 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
 			productName = MWDATCore;
+		};
+		CCBF8A11015C4FD6F78FF103 /* HuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 15C5A08D3F97FF9BA942B321 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
+			productName = HuggingFace;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
