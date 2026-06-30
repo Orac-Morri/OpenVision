@@ -7,11 +7,13 @@ import Foundation
 enum AIBackendType: String, Codable, CaseIterable {
     case openClaw = "openclaw"
     case geminiLive = "gemini_live"
+    case localGemma = "local_gemma"
 
     var displayName: String {
         switch self {
         case .openClaw: return "OpenClaw"
         case .geminiLive: return "Gemini Live"
+        case .localGemma: return "Local (Gemma 4)"
         }
     }
 
@@ -21,6 +23,8 @@ enum AIBackendType: String, Codable, CaseIterable {
             return "Wake word activation, 56+ tools, task execution"
         case .geminiLive:
             return "Real-time voice + vision, continuous conversation"
+        case .localGemma:
+            return "On-device Gemma 4 — private, offline, no API cost"
         }
     }
 
@@ -28,6 +32,7 @@ enum AIBackendType: String, Codable, CaseIterable {
         switch self {
         case .openClaw: return "terminal"
         case .geminiLive: return "waveform"
+        case .localGemma: return "cpu"
         }
     }
 }
@@ -51,6 +56,16 @@ struct AppSettings: Codable, Equatable {
 
     /// Google Gemini API key
     var geminiAPIKey: String = ""
+
+    // MARK: - Local Gemma Configuration
+
+    /// HuggingFace repo id of the on-device Gemma 4 model to load.
+    /// Matches `GemmaLocalModel.e2b.modelId` (note the validated capital-E2B casing).
+    var localGemmaModelId: String = "mlx-community/gemma-4-E2B-it-4bit"
+
+    /// Whether the selected Gemma model has finished downloading and is ready to load.
+    /// Set by the model-manager / GemmaLocalService once the snapshot is on disk.
+    var localGemmaModelReady: Bool = false
 
     // MARK: - Voice Settings
 
@@ -100,11 +115,17 @@ struct AppSettings: Codable, Equatable {
         !geminiAPIKey.isEmpty
     }
 
+    /// Whether the local Gemma backend is ready (model downloaded)
+    var isLocalGemmaConfigured: Bool {
+        localGemmaModelReady
+    }
+
     /// Whether the currently selected backend is configured
     var isCurrentBackendConfigured: Bool {
         switch aiBackend {
         case .openClaw: return isOpenClawConfigured
         case .geminiLive: return isGeminiConfigured
+        case .localGemma: return isLocalGemmaConfigured
         }
     }
 }

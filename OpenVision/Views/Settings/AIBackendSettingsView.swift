@@ -67,6 +67,16 @@ struct AIBackendSettingsView: View {
                         configurationBadge(configured: settingsManager.settings.isGeminiConfigured)
                     }
                 }
+
+                NavigationLink {
+                    GemmaSettingsView()
+                } label: {
+                    HStack {
+                        Label("Local Gemma", systemImage: "cpu")
+                        Spacer()
+                        configurationBadge(configured: settingsManager.settings.isLocalGemmaConfigured)
+                    }
+                }
             } header: {
                 Text("Configuration")
             }

@@ -170,6 +170,8 @@ struct VoiceAgentView: View {
                             await OpenClawService.shared.disconnect()
                         case .geminiLive:
                             await GeminiLiveService.shared.disconnect()
+                        case .localGemma:
+                            await GemmaLocalService.shared.disconnect()
                         }
                     }
                 }
@@ -444,6 +446,13 @@ struct VoiceAgentView: View {
                         print("[VoiceAgentView] Starting glasses stream for Gemini Live...")
                         await glassesManager.startStreaming()
                     }
+
+                case .localGemma:
+                    // On-device Gemma: load the model (must be downloaded first).
+                    // Text-only in Phase 1 — no glasses streaming needed.
+                    try await GemmaLocalService.shared.connect(
+                        modelId: settingsManager.settings.localGemmaModelId
+                    )
                 }
 
                 agentState = .listening
@@ -522,6 +531,8 @@ struct VoiceAgentView: View {
                 await OpenClawService.shared.disconnect()
             case .geminiLive:
                 await GeminiLiveService.shared.disconnect()
+            case .localGemma:
+                await GemmaLocalService.shared.disconnect()
             }
 
             // Stop glasses streaming (turns off LED)
@@ -646,6 +657,8 @@ struct VoiceAgentView: View {
                     await OpenClawService.shared.interrupt()
                 case .geminiLive:
                     await GeminiLiveService.shared.interrupt()
+                case .localGemma:
+                    GemmaLocalService.shared.interrupt()
                 }
             }
         }
@@ -664,6 +677,20 @@ struct VoiceAgentView: View {
 
     /// Setup AI service callbacks for receiving responses
     private func setupAIServiceCallbacks() {
+        // Local Gemma callbacks
+        GemmaLocalService.shared.onAgentMessage = { (message: String) in
+            guard self.isSessionActive else { return }
+            self.aiTranscript = message
+            self.speakResponse(message)
+        }
+        GemmaLocalService.shared.onProcessingChanged = { (isProcessing: Bool) in
+            if isProcessing {
+                self.agentState = .thinking
+            } else if self.agentState == .thinking && !self.ttsService.isSpeaking {
+                self.agentState = self.isSessionActive ? .listening : .idle
+            }
+        }
+
         // OpenClaw callbacks
         OpenClawService.shared.onAgentMessage = { (message: String) in
             print("[VoiceAgentView] Received AI message: \(message.prefix(50))...")
@@ -775,6 +802,8 @@ struct VoiceAgentView: View {
                     await OpenClawService.shared.interrupt()
                 case .geminiLive:
                     await GeminiLiveService.shared.interrupt()
+                case .localGemma:
+                    GemmaLocalService.shared.interrupt()
                 }
             }
             // Stay in listening mode
@@ -845,6 +874,12 @@ struct VoiceAgentView: View {
             case .geminiLive:
                 try await GeminiLiveService.shared.sendText(command)
                 // Gemini Live handles response streaming via callbacks
+
+            case .localGemma:
+                // On-device text generation. Photo commands aren't supported in Phase 1
+                // (text-only); they're answered as plain text until vision lands in Phase 2.
+                try await GemmaLocalService.shared.sendMessage(command)
+                // Response + state updates handled by GemmaLocalService callbacks
             }
         } catch {
             errorMessage = "Failed to send command: \(error.localizedDescription)"

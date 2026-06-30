@@ -1,8 +1,10 @@
 name: OpenVision
 options:
   bundleIdPrefix: com.openvision
+  # Bumped 16 → 18 for the on-device Gemma 4 (MLX) backend, which needs iOS 18 at runtime.
+  # Revert to 16 + gate GemmaLocalService behind `if #available(iOS 18)` to keep older support.
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "18.0"
   xcodeVersion: "15.0"
   generateEmptyDirectories: true
   groupSortPosition: top
@@ -57,6 +59,11 @@ targets:
         products:
           - MWDATCore
           - MWDATCamera
+      # On-device Gemma 4 (Local backend). MLX/MLXNN resolve transitively via these products.
+      - package: mlx-swift-lm
+        products:
+          - MLXLLM
+          - MLXLMCommon
     preBuildScripts:
       - name: "Check Config Files"
         script: |
@@ -70,6 +77,9 @@ packages:
   meta-wearables-dat-ios:
     url: https://github.com/facebook/meta-wearables-dat-ios
     from: 0.4.0
+  mlx-swift-lm:
+    url: https://github.com/ml-explore/mlx-swift-lm.git
+    exactVersion: "3.31.3"
 
 schemes:
   OpenVision:
