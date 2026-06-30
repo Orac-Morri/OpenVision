@@ -136,6 +136,7 @@ final class GemmaLocalService: ObservableObject {
     /// Load the selected model into memory. Throws if it hasn't been downloaded yet
     /// (we don't want a multi-GB download to kick off silently on a "connect").
     func connect(modelId: String) async throws {
+        print("[GemmaLocal] connect(\(modelId)) — already loaded: \(loadedModelId == modelId && modelContainer != nil)")
         if loadedModelId == modelId, modelContainer != nil {
             setState(.connected); return
         }
@@ -146,6 +147,7 @@ final class GemmaLocalService: ObservableObject {
         await registerGemma4IfNeeded()
 
         do {
+            print("[GemmaLocal] loading container…")
             let configuration = ModelConfiguration(id: modelId)
             let container = try await LLMModelFactory.shared.loadContainer(
                 from: #hubDownloader(),
@@ -159,7 +161,9 @@ final class GemmaLocalService: ObservableObject {
             loadedModelId = modelId
             isModelLoaded = true
             setState(.connected)
+            print("[GemmaLocal] ✓ model loaded, connected")
         } catch {
+            print("[GemmaLocal] ✗ load failed: \(error)")
             lastError = error.localizedDescription
             setState(.failed(error.localizedDescription))
             throw error
@@ -180,7 +184,9 @@ final class GemmaLocalService: ObservableObject {
     /// Send a prompt and return the full reply via `onAgentMessage`. `imageData` is accepted
     /// for interface parity with the cloud backends but is ignored in Phase 1 (text-only).
     func sendMessage(_ text: String, imageData: Data? = nil) async throws {
+        print("[GemmaLocal] sendMessage: \"\(text)\" — container loaded: \(modelContainer != nil)")
         guard let container = modelContainer else {
+            print("[GemmaLocal] ✗ model NOT loaded — throwing")
             throw GemmaLocalError.modelNotLoaded
         }
         setProcessing(true)
