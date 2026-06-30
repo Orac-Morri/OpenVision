@@ -54,6 +54,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: false
         ENABLE_PREVIEWS: true
+        CODE_SIGN_ENTITLEMENTS: OpenVision/OpenVision.entitlements
     dependencies:
       - package: meta-wearables-dat-ios
         products:
@@ -62,7 +63,7 @@ targets:
       # On-device Gemma 4 (Local backend). MLX/MLXNN resolve transitively via these products.
       - package: mlx-swift-lm
         products:
-          - MLXLLM
+          - MLXVLM           # native Gemma 4 VLM (text + vision)
           - MLXLMCommon
           - MLXHuggingFace   # #hubDownloader() / #huggingFaceTokenizerLoader()
       # The macros above expand to HuggingFace.HubClient + Tokenizers.AutoTokenizer; mlx-swift-lm

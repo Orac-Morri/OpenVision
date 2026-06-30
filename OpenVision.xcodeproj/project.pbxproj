@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		05E45EACAE8C896D7101ADF2 /* Gemma4Text.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11512A2ACB8CA52D68C79479 /* Gemma4Text.swift */; };
 		0CD9B9D7D0854411C0A04148 /* AIBackendProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900F00D2451513A29BC4C6F /* AIBackendProtocol.swift */; };
 		186FD72F369F1962B15EB858 /* OpenClawService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C539AB340611B1A6CCC50F17 /* OpenClawService.swift */; };
 		1EEA4B0E379A76881244FAB9 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE51DA812A9394A5064F60E /* SettingsView.swift */; };
@@ -15,7 +14,7 @@
 		29F56C03229677BC1F157CEC /* HapticFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD745CF110FC8C25A5B34D8 /* HapticFeedback.swift */; };
 		3069D5D002C64029E1A09728 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E2210A5A20177647BDB5AD /* Config.swift */; };
 		313177DDBE794549925682FA /* GemmaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BFC8380B5BDA0778E04EAB /* GemmaSettingsView.swift */; };
-		33D67E4757C03873F8FED385 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 0DB70D0CA14C70A3B9547241 /* MLXLLM */; };
+		33D67E4757C03873F8FED385 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = FEDC861C14CDA73BBCF6CCFD /* MLXVLM */; };
 		341497F0AA31AE9C6E137386 /* MemoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 484468B5604EFF4051074762 /* MemoriesView.swift */; };
 		342B57112073CFC14CD78614 /* VoiceCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B5A07D9F5C0579C275C597 /* VoiceCommandService.swift */; };
 		359A931F49DDF267F80B07B2 /* AudioPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 529F4C0838CFE7F8F55E28E4 /* AudioPlaybackService.swift */; };
@@ -61,7 +60,6 @@
 /* Begin PBXFileReference section */
 		01CC70E5327BD07B920833FC /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
 		0E256E8AF9CAB4123C91B979 /* TranscriptBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptBubble.swift; sourceTree = "<group>"; };
-		11512A2ACB8CA52D68C79479 /* Gemma4Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gemma4Text.swift; sourceTree = "<group>"; };
 		2410F1B11CD5A7070F3E7590 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2612B6630DAE1360F7FBFEE5 /* GeminiVisionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiVisionService.swift; sourceTree = "<group>"; };
 		266032AAD0DF8037A64CAB15 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
@@ -81,6 +79,7 @@
 		773753CA73EBA9F8C78BD8E4 /* GeminiSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiSettingsView.swift; sourceTree = "<group>"; };
 		7946C8232CEA5A362056AC2A /* OpenClawProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawProtocol.swift; sourceTree = "<group>"; };
 		8601201988376029090B1EAA /* OpenVision.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OpenVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8D8637C15D8F2B68599FA38D /* OpenVision.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenVision.entitlements; sourceTree = "<group>"; };
 		8DD25C635E9A37E7D6CA7677 /* GlassesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesManager.swift; sourceTree = "<group>"; };
 		98C627C6F13B708A7A8D2CDA /* wake_word_ding.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = wake_word_ding.mp3; sourceTree = "<group>"; };
 		9BCCC84E6880175BD83F37FD /* ConversationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationManager.swift; sourceTree = "<group>"; };
@@ -97,7 +96,6 @@
 		C42C04946FFC3B3A9DE78573 /* VoiceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSettingsView.swift; sourceTree = "<group>"; };
 		C539AB340611B1A6CCC50F17 /* OpenClawService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawService.swift; sourceTree = "<group>"; };
 		CAD745CF110FC8C25A5B34D8 /* HapticFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticFeedback.swift; sourceTree = "<group>"; };
-		CD4FA0CB22EEECC836B2C5A5 /* LICENSE-gemma4-ios */ = {isa = PBXFileReference; path = "LICENSE-gemma4-ios"; sourceTree = "<group>"; };
 		CE2B8AE1E195B62D980BEA66 /* SoundService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundService.swift; sourceTree = "<group>"; };
 		D416290774C17FDC0DDFBC68 /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
 		DFBB8B07B4970CA5F63B3B2A /* GemmaLocalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaLocalService.swift; sourceTree = "<group>"; };
@@ -114,7 +112,7 @@
 			files = (
 				81F38E617E61131E8C87620B /* MWDATCore in Frameworks */,
 				B72ACD1B63980B9C4BBC7B8E /* MWDATCamera in Frameworks */,
-				33D67E4757C03873F8FED385 /* MLXLLM in Frameworks */,
+				33D67E4757C03873F8FED385 /* MLXVLM in Frameworks */,
 				408073C736E7EB74442648EF /* MLXLMCommon in Frameworks */,
 				B82C3BB7AED7C2367F729678 /* MLXHuggingFace in Frameworks */,
 				6E678BA570E5148EE9D9B4FE /* HuggingFace in Frameworks */,
@@ -162,6 +160,7 @@
 				73C8E684016E1E082B6511F2 /* Services */,
 				35DFB6AFBC95C8461F7FE361 /* Utilities */,
 				198BDC47F90490C1B36B7B72 /* Views */,
+				8D8637C15D8F2B68599FA38D /* OpenVision.entitlements */,
 			);
 			path = OpenVision;
 			sourceTree = "<group>";
@@ -210,15 +209,6 @@
 				8601201988376029090B1EAA /* OpenVision.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		4B4D562A6CB5F6F5F2A2A04E /* Vendor */ = {
-			isa = PBXGroup;
-			children = (
-				11512A2ACB8CA52D68C79479 /* Gemma4Text.swift */,
-				CD4FA0CB22EEECC836B2C5A5 /* LICENSE-gemma4-ios */,
-			);
-			path = Vendor;
 			sourceTree = "<group>";
 		};
 		4EED49775404F3FCDDF6904A /* History */ = {
@@ -317,7 +307,6 @@
 		B929FE4E9AB889620F64C057 /* GemmaLocal */ = {
 			isa = PBXGroup;
 			children = (
-				4B4D562A6CB5F6F5F2A2A04E /* Vendor */,
 				DFBB8B07B4970CA5F63B3B2A /* GemmaLocalService.swift */,
 			);
 			path = GemmaLocal;
@@ -398,7 +387,7 @@
 			packageProductDependencies = (
 				A7FF778329794C28B434EEAA /* MWDATCore */,
 				0DEB724AE3EDB04ABE9E3768 /* MWDATCamera */,
-				0DB70D0CA14C70A3B9547241 /* MLXLLM */,
+				FEDC861C14CDA73BBCF6CCFD /* MLXVLM */,
 				6ADFD2818BFD4713F6BDA7F7 /* MLXLMCommon */,
 				4169E6A87853A9ECECC3C6E4 /* MLXHuggingFace */,
 				CCBF8A11015C4FD6F78FF103 /* HuggingFace */,
@@ -504,7 +493,6 @@
 				7694BA570FF3ACCF29E2C5C9 /* GeminiLiveService.swift in Sources */,
 				F1D86E9A3AB2A994A205AB83 /* GeminiSettingsView.swift in Sources */,
 				BFC445B65C5C0BE610EC719E /* GeminiVisionService.swift in Sources */,
-				05E45EACAE8C896D7101ADF2 /* Gemma4Text.swift in Sources */,
 				62B472287A9628E0E6FB377D /* GemmaLocalService.swift in Sources */,
 				313177DDBE794549925682FA /* GemmaSettingsView.swift in Sources */,
 				587295A93FA82DEBB18139BB /* GlassCard.swift in Sources */,
@@ -537,6 +525,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OpenVision/OpenVision.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = OpenVision/Resources/Info.plist;
@@ -628,6 +617,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OpenVision/OpenVision.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = OpenVision/Resources/Info.plist;
@@ -767,11 +757,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		0DB70D0CA14C70A3B9547241 /* MLXLLM */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = MLXLLM;
-		};
 		0DEB724AE3EDB04ABE9E3768 /* MWDATCamera */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F7EEA1ED9999A23C56A77DE0 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
@@ -801,6 +786,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 15C5A08D3F97FF9BA942B321 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
 			productName = HuggingFace;
+		};
+		FEDC861C14CDA73BBCF6CCFD /* MLXVLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXVLM;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

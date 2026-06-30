@@ -846,6 +846,15 @@ struct VoiceAgentView: View {
             return
         }
 
+        // Drop duplicate/overlapping queries while one is already being generated.
+        // The speech recognizer can emit a command more than once (partial + final);
+        // without this, a photo command fires twice — once before the frame is ready
+        // (text-only → "please provide an image") and once with the photo.
+        if agentState == .thinking || agentState == .toolRunning {
+            print("[VoiceAgentView] Ignoring overlapping command — already processing: \(command)")
+            return
+        }
+
         agentState = .thinking
 
         // Check if this is a vision-related command
@@ -876,9 +885,13 @@ struct VoiceAgentView: View {
                 // Gemini Live handles response streaming via callbacks
 
             case .localGemma:
-                // On-device text generation. Photo commands aren't supported in Phase 1
-                // (text-only); they're answered as plain text until vision lands in Phase 2.
-                try await GemmaLocalService.shared.sendMessage(command)
+                if isPhotoCommand {
+                    // On-device vision: capture the glasses photo and feed it to the Gemma 4 VLM.
+                    print("[VoiceAgentView] Photo command on Local Gemma, capturing…")
+                    await captureAndSendPhoto(withPrompt: command)
+                } else {
+                    try await GemmaLocalService.shared.sendMessage(command)
+                }
                 // Response + state updates handled by GemmaLocalService callbacks
             }
         } catch {
@@ -1080,6 +1093,19 @@ struct VoiceAgentView: View {
     }
 
     /// Capture photo and send to OpenClaw with the user's prompt
+    /// Send a prompt (optionally with a photo) to whichever backend is currently selected.
+    private func sendPromptToActiveBackend(_ prompt: String, imageData: Data?) async throws {
+        switch settingsManager.settings.aiBackend {
+        case .openClaw:
+            try await OpenClawService.shared.sendMessage(prompt, imageData: imageData)
+        case .localGemma:
+            try await GemmaLocalService.shared.sendMessage(prompt, imageData: imageData)
+        case .geminiLive:
+            // Gemini Live streams video continuously; just send the text prompt.
+            try await GeminiLiveService.shared.sendText(prompt)
+        }
+    }
+
     private func captureAndSendPhoto(withPrompt prompt: String) async {
         // Try to get an image from various sources
         var imageData: Data?
@@ -1123,25 +1149,19 @@ struct VoiceAgentView: View {
         // Send with or without image
         do {
             if let imageData = imageData {
-                print("[VoiceAgentView] Sending message with photo (\(imageData.count) bytes)")
-                try await OpenClawService.shared.sendMessage(prompt, imageData: imageData)
+                NSLog("[OV] Sending message with photo (%d bytes)", imageData.count)
+                try await sendPromptToActiveBackend(prompt, imageData: imageData)
 
-                // Only stop streaming if:
-                // 1. We started it just for this photo, AND
-                // 2. Not in live video mode
-                if startedStreamingForPhoto && !isLiveVideoMode {
-                    print("[VoiceAgentView] Stopping camera stream after photo")
-                    await glassesManager.stopStreaming()
-                } else if isLiveVideoMode {
-                    print("[VoiceAgentView] Keeping stream active for live video mode")
-                }
+                // Keep the camera stream alive for the rest of the session — stopping and
+                // restarting it per photo made follow-up captures race and time out (returning
+                // nil → "please provide an image"). The stream is stopped when the session ends.
             } else {
-                print("[VoiceAgentView] No image available, sending text only")
+                NSLog("[OV] No image available — capture returned nil; sending text only")
                 // Provide more helpful message
                 let note = glassesManager.isRegistered
                     ? " (Note: Camera is not available right now. Try starting the camera from Settings > Glasses first.)"
                     : " (Note: Smart glasses not connected. Please register in Settings.)"
-                try await OpenClawService.shared.sendMessage(prompt + note)
+                try await sendPromptToActiveBackend(prompt + note, imageData: nil)
             }
         } catch {
             print("[VoiceAgentView] Failed to send: \(error)")
@@ -1157,22 +1177,22 @@ struct VoiceAgentView: View {
 
     /// Capture photo from glasses and return the data
     private func capturePhotoFromGlasses() async -> Data? {
-        // Simple approach: just wait for photo via lastPhotoData
-        // Request the capture
+        // Clear any stale photo before requesting a fresh capture.
+        glassesManager.lastPhotoData = nil
+        NSLog("[OV] capturePhotoFromGlasses: requesting capture (streaming=%@)", glassesManager.isStreaming ? "yes" : "no")
         await glassesManager.capturePhoto()
 
         // Wait for photo data to appear (poll for up to 5 seconds)
         for _ in 0..<50 {
             if let photoData = glassesManager.lastPhotoData {
-                // Clear it so we don't reuse it
                 glassesManager.lastPhotoData = nil
-                print("[VoiceAgentView] Photo captured: \(photoData.count) bytes")
+                NSLog("[OV] Photo captured: %d bytes", photoData.count)
                 return photoData
             }
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
 
-        print("[VoiceAgentView] Photo capture timed out")
+        NSLog("[OV] Photo capture TIMED OUT after 5s")
         return nil
     }
 

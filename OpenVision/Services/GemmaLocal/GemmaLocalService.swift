@@ -6,17 +6,17 @@
 // connect()/disconnect()/sendMessage(). "Connect" loads the model into memory; "disconnect"
 // unloads it. Selection is a manual knob (Settings → AI Backend → Local (Gemma 4)).
 //
-// The Gemma 4 model architecture itself lives in Vendor/Gemma4Text.swift (MIT, from
-// github.com/vdthatte/gemma4-ios). The load + generate flow below mirrors that project's
-// MLXService, adapted to OpenVision's backend conventions.
+// Uses the native Gemma 4 VLM in mlx-swift-lm 3.31.3 (registered in VLMModelFactory as
+// "gemma4"), which handles BOTH text and vision — so "what's this?" with a glasses photo
+// runs fully on-device. No custom model port or pixel preprocessing needed: images go in
+// via UserInput / Chat.Message and the model's processor handles the rest.
 //
 // NOTE: Requires iOS 18+ and a physical device (MLX is unavailable on the Simulator).
-// Phase 1 is TEXT-ONLY (LLMModelFactory). Vision (VLMModelFactory + image preprocessing)
-// is Phase 2 — see docs/local-gemma-backend.md.
 
 import Foundation
+import CoreImage
 import MLX
-import MLXLLM
+import MLXVLM            // native Gemma 4 vision-language model (text + image)
 import MLXLMCommon
 import MLXHuggingFace   // #hubDownloader() / #huggingFaceTokenizerLoader() macros
 import HuggingFace      // the macros expand to HuggingFace.HubClient …
@@ -89,35 +89,19 @@ final class GemmaLocalService: ObservableObject {
 
     private var modelContainer: ModelContainer?
     private var loadedModelId: String?
-    private var registeredGemma4 = false
     private var cancelRequested = false
 
-    // MARK: - Registration
-
-    /// Register the Gemma 4 model architecture into mlx-swift-lm's registry.
-    /// mlx-swift-lm 3.31.3 ships Gemma 3 but not Gemma 4, so we register the vendored port.
-    private func registerGemma4IfNeeded() async {
-        guard !registeredGemma4 else { return }
-        registeredGemma4 = true
-        await LLMTypeRegistry.shared.registerModelType("gemma4") { data in
-            let config = try JSONDecoder().decode(Gemma4TextConfiguration.self, from: data)
-            return Gemma4TextModel(config)
-        }
-        await LLMTypeRegistry.shared.registerModelType("gemma4_text") { data in
-            let config = try JSONDecoder().decode(Gemma4TextConfiguration.self, from: data)
-            return Gemma4TextModel(config)
-        }
-    }
+    // mlx-swift-lm 3.31.3 ships a native Gemma 4 VLM (text + vision) registered in
+    // VLMModelFactory, so no custom model registration is needed.
 
     // MARK: - Download (model manager)
 
     /// Download a model snapshot to disk (idempotent — skipped if already cached).
     func download(_ model: GemmaLocalModel, onProgress: @escaping (Double) -> Void) async throws {
         downloadProgress = 0
-        await registerGemma4IfNeeded()
         let configuration = ModelConfiguration(id: model.modelId)
         // loadContainer fetches the snapshot if missing; reuse it as the download path.
-        _ = try await LLMModelFactory.shared.loadContainer(
+        _ = try await VLMModelFactory.shared.loadContainer(
             from: #hubDownloader(),
             using: #huggingFaceTokenizerLoader(),
             configuration: configuration,
@@ -144,12 +128,11 @@ final class GemmaLocalService: ObservableObject {
         isProcessing = false
 
         Memory.cacheLimit = 20 * 1024 * 1024
-        await registerGemma4IfNeeded()
 
         do {
             print("[GemmaLocal] loading container…")
             let configuration = ModelConfiguration(id: modelId)
-            let container = try await LLMModelFactory.shared.loadContainer(
+            let container = try await VLMModelFactory.shared.loadContainer(
                 from: #hubDownloader(),
                 using: #huggingFaceTokenizerLoader(),
                 configuration: configuration,
@@ -181,10 +164,10 @@ final class GemmaLocalService: ObservableObject {
 
     // MARK: - Generation
 
-    /// Send a prompt and return the full reply via `onAgentMessage`. `imageData` is accepted
-    /// for interface parity with the cloud backends but is ignored in Phase 1 (text-only).
+    /// Send a prompt and return the full reply via `onAgentMessage`. When `imageData` is provided
+    /// (a glasses photo), it's passed to the Gemma 4 VLM so it can answer "what's this?" on-device.
     func sendMessage(_ text: String, imageData: Data? = nil) async throws {
-        print("[GemmaLocal] sendMessage: \"\(text)\" — container loaded: \(modelContainer != nil)")
+        NSLog("[OV] GemmaLocal sendMessage: \"%@\" — loaded: %@, image: %d bytes", text, modelContainer != nil ? "yes" : "no", imageData?.count ?? 0)
         guard let container = modelContainer else {
             print("[GemmaLocal] ✗ model NOT loaded — throwing")
             throw GemmaLocalError.modelNotLoaded
@@ -193,12 +176,24 @@ final class GemmaLocalService: ObservableObject {
         cancelRequested = false
         defer { setProcessing(false) }
 
+        var images: [UserInput.Image] = []
+        if let data = imageData, var ciImage = CIImage(data: data) {
+            // Downscale large frames before the vision encoder to keep peak memory down.
+            let maxDim: CGFloat = 1024
+            let longest = max(ciImage.extent.width, ciImage.extent.height)
+            if longest > maxDim {
+                let scale = maxDim / longest
+                ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            }
+            images.append(.ciImage(ciImage))
+        }
+
         var chat: [Chat.Message] = []
         let systemPrompt = SettingsManager.shared.settings.userPrompt
         if !systemPrompt.isEmpty {
             chat.append(.init(role: .system, content: systemPrompt))
         }
-        chat.append(.init(role: .user, content: text))
+        chat.append(.init(role: .user, content: text, images: images))
         let userInput = UserInput(chat: chat)
 
         let stream = try await container.perform { (context: ModelContext) in
