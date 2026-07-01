@@ -496,6 +496,23 @@ struct VoiceAgentView: View {
         }
     }
 
+    /// Bring wake-word listening back after using the glasses camera. On DAT 0.4.0 the camera
+    /// stream uses the Bluetooth transport, which disrupts the mic audio route and kills the
+    /// speech recognizer — so we force a clean restart (reconfigure audio + restart listening).
+    /// This is OpenVision's equivalent of OpenGlasses' "restore audio for wake word" after capture.
+    private func resumeWakeWordListening() {
+        guard settingsManager.settings.wakeWordEnabled,
+              voiceCommandService.authorizationStatus == .authorized else { return }
+        voiceCommandService.stopListening()
+        try? AudioSessionManager.shared.configureForGlasses()
+        do {
+            try voiceCommandService.startListening()
+            print("[VoiceAgentView] ✓ Restored wake-word listening after camera use")
+        } catch {
+            print("[VoiceAgentView] Failed to restore listening after camera: \(error)")
+        }
+    }
+
     /// Configure audio routing to use glasses mic/speaker if available
     private func configureAudioForGlasses() {
         guard glassesManager.isRegistered else {
@@ -1172,12 +1189,19 @@ struct VoiceAgentView: View {
     private func handleFaceCommandIfNeeded(_ command: String) async -> Bool {
         let lower = command.lowercased()
         let face = FaceRecognitionService.shared
+        NSLog("[OV] face-command check: \"%@\" -> extracted name: %@", command, extractFaceName(from: command, lower: lower) ?? "none")
 
-        // Identify: "who is this / who am I looking at / do you know this person"
-        let identify = ["who is this", "who's this", "who is that", "who am i looking at",
-                        "do you know this person", "do you know them", "who is in front of me",
-                        "recognize this person", "recognise this person"]
+        // Identify: many phrasings — "who is this", "tell me who she is", "who's she", etc.
+        let identify = ["who is this", "who's this", "who is that", "who's that",
+                        "who am i looking at", "who she is", "who he is", "who is she",
+                        "who is he", "who's she", "who's he", "tell me who", "who is it",
+                        "who's it", "do you know this person", "do you know them",
+                        "do you know her", "do you know him", "who is in front of me",
+                        "recognize this person", "recognise this person", "recognize her",
+                        "recognise her", "recognize him", "recognise him", "identify this person",
+                        "identify her", "identify him", "who is in front"]
         if identify.contains(where: { lower.contains($0) }) {
+            NSLog("[OV] face identify command: \"%@\"", command)
             agentState = .thinking
             guard let image = await currentGlassesImage() else {
                 speakResponse("I couldn't get a picture from the glasses. Make sure they're connected.")
@@ -1222,11 +1246,13 @@ struct VoiceAgentView: View {
             || lower.contains("save her face") || lower.contains("save his face")
         guard isEnroll else { return nil }
 
-        // The name follows one of these connectors. Most specific first.
-        let connectors = ["this person is ", "her name is ", "his name is ", "their name is ",
-                          "name is ", "this is ", "she is ", "he is ", "it is ",
-                          "this face as ", "face as ", "person as ", "them as ", "her as ",
-                          "him as ", " as "]
+        // The name follows one of these connectors. Most specific first. Includes contractions
+        // ("she's", "her name's") because the speech recognizer often transcribes those.
+        let connectors = ["this person is ", "her name is ", "her name's ", "his name is ",
+                          "his name's ", "their name is ", "name is ", "name's ", "this is ",
+                          "this's ", "she is ", "she's ", "he is ", "he's ", "it is ", "it's ",
+                          "person is ", "person's ", "this face as ", "face as ", "person as ",
+                          "them as ", "her as ", "him as ", "called ", " as "]
         for connector in connectors {
             guard let range = lower.range(of: connector) else { continue }
             let offset = lower.distance(from: lower.startIndex, to: range.upperBound)
@@ -1258,6 +1284,8 @@ struct VoiceAgentView: View {
         if glassesManager.isStreaming && !isLiveVideoMode {
             await glassesManager.stopStreaming()
         }
+        // The camera disrupted the mic audio route — bring wake-word listening back.
+        resumeWakeWordListening()
         return frame
     }
 
@@ -1317,6 +1345,8 @@ struct VoiceAgentView: View {
         if imageData != nil && glassesManager.isStreaming && !isLiveVideoMode {
             NSLog("[OV] photo captured — stopping camera (click and go)")
             await glassesManager.stopStreaming()
+            // Camera disrupted the mic audio route — restore wake-word listening.
+            resumeWakeWordListening()
         }
 
         // Send with or without image
