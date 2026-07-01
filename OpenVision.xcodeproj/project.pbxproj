@@ -10,6 +10,7 @@
 		0CD9B9D7D0854411C0A04148 /* AIBackendProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900F00D2451513A29BC4C6F /* AIBackendProtocol.swift */; };
 		186FD72F369F1962B15EB858 /* OpenClawService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C539AB340611B1A6CCC50F17 /* OpenClawService.swift */; };
 		1EEA4B0E379A76881244FAB9 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE51DA812A9394A5064F60E /* SettingsView.swift */; };
+		223474C328BCC3C81ADCB93D /* OpenAIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDF4A693D2CEB248757FBD3 /* OpenAIService.swift */; };
 		2947D6E5D6D5B7080C53D478 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C27052ECD2FFC79652B5CDB3 /* OnboardingView.swift */; };
 		29F56C03229677BC1F157CEC /* HapticFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD745CF110FC8C25A5B34D8 /* HapticFeedback.swift */; };
 		3069D5D002C64029E1A09728 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E2210A5A20177647BDB5AD /* Config.swift */; };
@@ -36,6 +37,7 @@
 		79216FADF7B5CD556FD6FDEE /* FaceRecognitionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D80EDF3FFC20786ED7F6654 /* FaceRecognitionService.swift */; };
 		79C519EDCA508C00DAAB1F6E /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42C04946FFC3B3A9DE78573 /* VoiceSettingsView.swift */; };
 		7C118644498027D47E828115 /* wake_word_ding.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 98C627C6F13B708A7A8D2CDA /* wake_word_ding.mp3 */; };
+		800BD44B75446351A267E190 /* OpenAISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D83F733F1799E2675A34CC4 /* OpenAISettingsView.swift */; };
 		81F38E617E61131E8C87620B /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = A7FF778329794C28B434EEAA /* MWDATCore */; };
 		8BB3557D9BE4E9F2399BDBC1 /* VoiceAgentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 601D21AA8114E457F40C6C4A /* VoiceAgentView.swift */; };
 		A7A3B0467B07F116AEF20BEE /* AudioSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA55F18F98C8B110680989C /* AudioSessionManager.swift */; };
@@ -75,6 +77,7 @@
 		516A0726470BFA8BD9B55F3F /* AdditionalInstructionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdditionalInstructionsView.swift; sourceTree = "<group>"; };
 		529F4C0838CFE7F8F55E28E4 /* AudioPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackService.swift; sourceTree = "<group>"; };
 		57A8327E5265287A0C89DE3D /* AIBackendSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIBackendSettingsView.swift; sourceTree = "<group>"; };
+		5D83F733F1799E2675A34CC4 /* OpenAISettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAISettingsView.swift; sourceTree = "<group>"; };
 		601D21AA8114E457F40C6C4A /* VoiceAgentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAgentView.swift; sourceTree = "<group>"; };
 		60E2210A5A20177647BDB5AD /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		6188DD26571BACB30096654D /* Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversation.swift; sourceTree = "<group>"; };
@@ -109,6 +112,7 @@
 		EAFCA981F220C3F978645D70 /* OpenClawSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawSettingsView.swift; sourceTree = "<group>"; };
 		ED25EC5E800C216965A50F8A /* GlassesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesSettingsView.swift; sourceTree = "<group>"; };
 		F1FEE8399255B598700D2F1F /* VoiceSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSelectionView.swift; sourceTree = "<group>"; };
+		FFDF4A693D2CEB248757FBD3 /* OpenAIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -138,6 +142,7 @@
 				C1BFC8380B5BDA0778E04EAB /* GemmaSettingsView.swift */,
 				ED25EC5E800C216965A50F8A /* GlassesSettingsView.swift */,
 				484468B5604EFF4051074762 /* MemoriesView.swift */,
+				5D83F733F1799E2675A34CC4 /* OpenAISettingsView.swift */,
 				EAFCA981F220C3F978645D70 /* OpenClawSettingsView.swift */,
 				3DE51DA812A9394A5064F60E /* SettingsView.swift */,
 				F1FEE8399255B598700D2F1F /* VoiceSelectionView.swift */,
@@ -362,6 +367,7 @@
 			isa = PBXGroup;
 			children = (
 				A900F00D2451513A29BC4C6F /* AIBackendProtocol.swift */,
+				FFDF4A693D2CEB248757FBD3 /* OpenAIService.swift */,
 			);
 			path = AIBackend;
 			sourceTree = "<group>";
@@ -522,6 +528,8 @@
 				341497F0AA31AE9C6E137386 /* MemoriesView.swift in Sources */,
 				37787EEECF8236DABFDE4D3D /* OVExceptionCatcher.m in Sources */,
 				2947D6E5D6D5B7080C53D478 /* OnboardingView.swift in Sources */,
+				223474C328BCC3C81ADCB93D /* OpenAIService.swift in Sources */,
+				800BD44B75446351A267E190 /* OpenAISettingsView.swift in Sources */,
 				C3B4CF9D8B6EC21957CC7BEF /* OpenClawProtocol.swift in Sources */,
 				186FD72F369F1962B15EB858 /* OpenClawService.swift in Sources */,
 				758F66B632E8A1CBDBB40094 /* OpenClawSettingsView.swift in Sources */,

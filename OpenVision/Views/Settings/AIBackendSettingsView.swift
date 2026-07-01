@@ -69,6 +69,16 @@ struct AIBackendSettingsView: View {
                 }
 
                 NavigationLink {
+                    OpenAISettingsView()
+                } label: {
+                    HStack {
+                        Label("OpenAI Settings", systemImage: "sparkles")
+                        Spacer()
+                        configurationBadge(configured: settingsManager.settings.isOpenAIConfigured)
+                    }
+                }
+
+                NavigationLink {
                     GemmaSettingsView()
                 } label: {
                     HStack {

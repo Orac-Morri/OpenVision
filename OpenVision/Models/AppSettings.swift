@@ -7,12 +7,14 @@ import Foundation
 enum AIBackendType: String, Codable, CaseIterable {
     case openClaw = "openclaw"
     case geminiLive = "gemini_live"
+    case openAI = "openai"
     case localGemma = "local_gemma"
 
     var displayName: String {
         switch self {
         case .openClaw: return "OpenClaw"
         case .geminiLive: return "Gemini Live"
+        case .openAI: return "OpenAI"
         case .localGemma: return "Local (Gemma 4)"
         }
     }
@@ -23,6 +25,8 @@ enum AIBackendType: String, Codable, CaseIterable {
             return "Wake word activation, 56+ tools, task execution"
         case .geminiLive:
             return "Real-time voice + vision, continuous conversation"
+        case .openAI:
+            return "GPT-4o — cloud text + vision (OpenAI-compatible)"
         case .localGemma:
             return "On-device Gemma 4 — private, offline, no API cost"
         }
@@ -32,6 +36,7 @@ enum AIBackendType: String, Codable, CaseIterable {
         switch self {
         case .openClaw: return "terminal"
         case .geminiLive: return "waveform"
+        case .openAI: return "sparkles"
         case .localGemma: return "cpu"
         }
     }
@@ -56,6 +61,18 @@ struct AppSettings: Codable, Equatable {
 
     /// Google Gemini API key
     var geminiAPIKey: String = ""
+
+    // MARK: - OpenAI Configuration
+
+    /// OpenAI (or OpenAI-compatible) API key.
+    var openAIAPIKey: String = ""
+
+    /// Chat model id. gpt-4o-mini is cheap and supports vision — a good default for testing.
+    var openAIModel: String = "gpt-4o-mini"
+
+    /// API base URL. Override to point at any OpenAI-compatible endpoint (OpenRouter, a local
+    /// server, Azure-style gateways, etc.). No trailing slash.
+    var openAIBaseURL: String = "https://api.openai.com/v1"
 
     // MARK: - Local Gemma Configuration
 
@@ -115,6 +132,11 @@ struct AppSettings: Codable, Equatable {
         !geminiAPIKey.isEmpty
     }
 
+    /// Whether OpenAI is configured (has API key)
+    var isOpenAIConfigured: Bool {
+        !openAIAPIKey.isEmpty && !openAIBaseURL.isEmpty
+    }
+
     /// Whether the local Gemma backend is ready (model downloaded)
     var isLocalGemmaConfigured: Bool {
         localGemmaModelReady
@@ -125,6 +147,7 @@ struct AppSettings: Codable, Equatable {
         switch aiBackend {
         case .openClaw: return isOpenClawConfigured
         case .geminiLive: return isGeminiConfigured
+        case .openAI: return isOpenAIConfigured
         case .localGemma: return isLocalGemmaConfigured
         }
     }

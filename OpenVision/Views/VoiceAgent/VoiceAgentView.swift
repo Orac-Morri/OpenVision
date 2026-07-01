@@ -184,6 +184,8 @@ struct VoiceAgentView: View {
                             await OpenClawService.shared.disconnect()
                         case .geminiLive:
                             await GeminiLiveService.shared.disconnect()
+                        case .openAI:
+                            break   // stateless HTTP — nothing to disconnect
                         case .localGemma:
                             // Keep the on-device model LOADED so the next "Ok Vision" is instant.
                             // Unloading + reloading the ~3.6GB model per conversation was the cause
@@ -451,6 +453,10 @@ struct VoiceAgentView: View {
                     // User says "start video stream" → startLiveVideoMode()
                     // User says "take a photo" → captureAndSendPhoto() starts streaming on-demand
 
+                case .openAI:
+                    try await OpenAIService.shared.connect()
+                    // Stateless HTTP — photos are captured on-demand like OpenClaw.
+
                 case .geminiLive:
                     try await GeminiLiveService.shared.connect()
                     // Start glasses streaming for Gemini Live mode
@@ -566,6 +572,8 @@ struct VoiceAgentView: View {
                 await OpenClawService.shared.disconnect()
             case .geminiLive:
                 await GeminiLiveService.shared.disconnect()
+            case .openAI:
+                break   // stateless HTTP — nothing to disconnect
             case .localGemma:
                 // Keep the on-device model loaded — see note in the .idle handler. Reloading it
                 // per conversation was what made "Ok Vision" slow/flaky.
@@ -709,6 +717,8 @@ struct VoiceAgentView: View {
                     await OpenClawService.shared.interrupt()
                 case .geminiLive:
                     await GeminiLiveService.shared.interrupt()
+                case .openAI:
+                    break   // single request/response — nothing to interrupt
                 case .localGemma:
                     GemmaLocalService.shared.interrupt()
                 }
@@ -741,6 +751,20 @@ struct VoiceAgentView: View {
             self.speakResponse(message)
         }
         GemmaLocalService.shared.onProcessingChanged = { (isProcessing: Bool) in
+            if isProcessing {
+                self.agentState = .thinking
+            } else if self.agentState == .thinking && !self.ttsService.isSpeaking {
+                self.agentState = self.isSessionActive ? .listening : .idle
+            }
+        }
+
+        // OpenAI callbacks
+        OpenAIService.shared.onAgentMessage = { (message: String) in
+            guard self.isSessionActive else { return }
+            self.aiTranscript = message
+            self.speakResponse(message)
+        }
+        OpenAIService.shared.onProcessingChanged = { (isProcessing: Bool) in
             if isProcessing {
                 self.agentState = .thinking
             } else if self.agentState == .thinking && !self.ttsService.isSpeaking {
@@ -859,6 +883,8 @@ struct VoiceAgentView: View {
                     await OpenClawService.shared.interrupt()
                 case .geminiLive:
                     await GeminiLiveService.shared.interrupt()
+                case .openAI:
+                    break   // single request/response — nothing to interrupt
                 case .localGemma:
                     GemmaLocalService.shared.interrupt()
                 }
@@ -949,6 +975,15 @@ struct VoiceAgentView: View {
                     try await OpenClawService.shared.sendMessage(command)
                 }
                 // State updates handled by callbacks
+
+            case .openAI:
+                if isPhotoCommand {
+                    print("[VoiceAgentView] Photo command on OpenAI — capturing...")
+                    await captureAndSendPhoto(withPrompt: command)
+                } else {
+                    try await OpenAIService.shared.sendMessage(command)
+                }
+                agentState = isSessionActive ? .listening : .idle
 
             case .geminiLive:
                 try await GeminiLiveService.shared.sendText(command)
@@ -1262,6 +1297,8 @@ struct VoiceAgentView: View {
         switch settingsManager.settings.aiBackend {
         case .openClaw:
             try await OpenClawService.shared.sendMessage(prompt, imageData: imageData)
+        case .openAI:
+            try await OpenAIService.shared.sendMessage(prompt, imageData: imageData)
         case .localGemma:
             try await GemmaLocalService.shared.sendMessage(prompt, imageData: imageData)
         case .geminiLive:
