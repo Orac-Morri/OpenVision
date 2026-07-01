@@ -122,6 +122,13 @@ struct VoiceAgentView: View {
         .onAppear {
             setupVoiceCommandService()
             setupGlassesCallbacks()
+            preloadLocalModelIfNeeded()
+            // Resume wake-word listening when returning to this screen. .onDisappear stops it
+            // (e.g. when navigating to Settings), and the one-time .task doesn't re-run on return —
+            // so without this, the wake word stayed dead until you tapped the mic button.
+            if voiceCommandService.authorizationStatus == .authorized && !voiceCommandService.isListening {
+                startWakeWordListening()
+            }
         }
         .onDisappear {
             voiceCommandService.stopListening()
@@ -161,8 +168,12 @@ struct VoiceAgentView: View {
             print("[VoiceAgentView] VoiceCommandService state changed to: \(newState)")
             switch newState {
             case .idle:
-                // Conversation ended, return to idle
-                if isSessionActive {
+                // Conversation ended, return to idle — BUT ignore the transient .idle that fires
+                // while a session is starting up: configureAudioForGlasses() briefly stops the
+                // recognizer (→ .idle) mid-startup, which otherwise tore the session right back
+                // down and left commands "ignored" (stuck on thinking). agentState == .connecting
+                // means we're still starting, so don't treat it as a real conversation end.
+                if isSessionActive && agentState != .connecting {
                     print("[VoiceAgentView] Voice service idle, stopping session")
                     isSessionActive = false
                     agentState = .idle
@@ -174,7 +185,11 @@ struct VoiceAgentView: View {
                         case .geminiLive:
                             await GeminiLiveService.shared.disconnect()
                         case .localGemma:
-                            await GemmaLocalService.shared.disconnect()
+                            // Keep the on-device model LOADED so the next "Ok Vision" is instant.
+                            // Unloading + reloading the ~3.6GB model per conversation was the cause
+                            // of the "connecting…" lag and hangs. It stays resident until the app
+                            // backgrounds or the user switches backend.
+                            break
                         }
                     }
                 }
@@ -535,7 +550,9 @@ struct VoiceAgentView: View {
             case .geminiLive:
                 await GeminiLiveService.shared.disconnect()
             case .localGemma:
-                await GemmaLocalService.shared.disconnect()
+                // Keep the on-device model loaded — see note in the .idle handler. Reloading it
+                // per conversation was what made "Ok Vision" slow/flaky.
+                break
             }
 
             // Stop glasses streaming (turns off LED)
@@ -581,6 +598,21 @@ struct VoiceAgentView: View {
     // MARK: - Voice Command Setup
 
     /// Request speech recognition authorization
+    /// Warm up the on-device model in the background so the FIRST "Ok Vision" is instant
+    /// (no multi-second load on wake). Only when Local Gemma is the selected, downloaded backend.
+    private func preloadLocalModelIfNeeded() {
+        guard settingsManager.settings.aiBackend == .localGemma,
+              settingsManager.settings.localGemmaModelReady else { return }
+        Task {
+            do {
+                try await GemmaLocalService.shared.connect(modelId: settingsManager.settings.localGemmaModelId)
+                print("[VoiceAgentView] Local model preloaded — wake word will be instant")
+            } catch {
+                print("[VoiceAgentView] Local model preload failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func requestSpeechAuthorization() async {
         guard !hasRequestedSpeechAuth else { return }
         hasRequestedSpeechAuth = true
@@ -866,6 +898,12 @@ struct VoiceAgentView: View {
         lastProcessedCommand = command
         lastProcessedAt = now
 
+        // Face recognition — handled fully on-device (Apple Vision), independent of the AI backend.
+        if await handleFaceCommandIfNeeded(command) {
+            agentState = isSessionActive ? .listening : .idle
+            return
+        }
+
         agentState = .thinking
 
         // Check if this is a vision-related command
@@ -1125,6 +1163,102 @@ struct VoiceAgentView: View {
             return "What is the main object in this image? Name it specifically and describe its key visible details in 2–3 sentences."
         }
         return "Look closely at the image and answer specifically and concretely: \(s)"
+    }
+
+    // MARK: - Face recognition
+
+    /// Handle face commands ("remember this is …", "who is this", "forget …", "list faces").
+    /// Returns true if the command was a face command and was handled.
+    private func handleFaceCommandIfNeeded(_ command: String) async -> Bool {
+        let lower = command.lowercased()
+        let face = FaceRecognitionService.shared
+
+        // Identify: "who is this / who am I looking at / do you know this person"
+        let identify = ["who is this", "who's this", "who is that", "who am i looking at",
+                        "do you know this person", "do you know them", "who is in front of me",
+                        "recognize this person", "recognise this person"]
+        if identify.contains(where: { lower.contains($0) }) {
+            agentState = .thinking
+            guard let image = await currentGlassesImage() else {
+                speakResponse("I couldn't get a picture from the glasses. Make sure they're connected.")
+                return true
+            }
+            speakResponse(await face.identify(in: image))
+            return true
+        }
+
+        // Forget: "forget John"
+        if lower.hasPrefix("forget ") {
+            speakResponse(face.forgetFace(name: String(command.dropFirst("forget ".count))))
+            return true
+        }
+
+        // List: "list faces / who do you know"
+        if lower.contains("list faces") || lower.contains("list people") || lower.contains("who do you know") {
+            speakResponse(face.listKnownFaces())
+            return true
+        }
+
+        // Enroll: "remember this is X" and variants
+        if let name = extractFaceName(from: command, lower: lower) {
+            agentState = .thinking
+            guard let image = await currentGlassesImage() else {
+                speakResponse("I couldn't get a picture from the glasses. Make sure they're connected.")
+                return true
+            }
+            speakResponse(await face.rememberFace(name: name, from: image))
+            return true
+        }
+
+        return false
+    }
+
+    /// Pull the name out of an enroll command. Handles many phrasings:
+    /// "remember this is Neha", "remember she is Neha", "remember her name is Neha",
+    /// "take a picture and remember he is Sam", "save this face as Alex".
+    private func extractFaceName(from command: String, lower: String) -> String? {
+        // Gate: only treat as a face-enroll command if it's clearly about remembering a person.
+        let isEnroll = lower.contains("remember") || lower.contains("save this face")
+            || lower.contains("save her face") || lower.contains("save his face")
+        guard isEnroll else { return nil }
+
+        // The name follows one of these connectors. Most specific first.
+        let connectors = ["this person is ", "her name is ", "his name is ", "their name is ",
+                          "name is ", "this is ", "she is ", "he is ", "it is ",
+                          "this face as ", "face as ", "person as ", "them as ", "her as ",
+                          "him as ", " as "]
+        for connector in connectors {
+            guard let range = lower.range(of: connector) else { continue }
+            let offset = lower.distance(from: lower.startIndex, to: range.upperBound)
+            guard offset <= command.count else { continue }
+            var name = String(command[command.index(command.startIndex, offsetBy: offset)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Trim trailing filler like "Neha and save a contact" -> "Neha".
+            if let cut = name.range(of: " and ") { name = String(name[..<cut.lowerBound]) }
+            name = name.components(separatedBy: CharacterSet(charactersIn: ",.?!")).first ?? name
+            name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty && name.count <= 40 { return name }
+        }
+        return nil
+    }
+
+    /// Get a fresh UIImage frame from the glasses camera, then turn the camera off
+    /// ("click and go") — unless we're in live video mode.
+    private func currentGlassesImage() async -> UIImage? {
+        guard glassesManager.isRegistered else { return nil }
+        if !glassesManager.isStreaming { await glassesManager.startStreaming() }
+        glassesManager.lastFrame = nil
+        var frame: UIImage?
+        for _ in 0..<30 {   // up to ~3s for a fresh frame
+            if let f = glassesManager.lastFrame { frame = f; break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        if frame == nil { frame = glassesManager.lastFrame }
+        // Capture the frame first, then stop the stream (stopStreaming clears lastFrame).
+        if glassesManager.isStreaming && !isLiveVideoMode {
+            await glassesManager.stopStreaming()
+        }
+        return frame
     }
 
     /// Send a prompt (optionally with a photo) to whichever backend is currently selected.
