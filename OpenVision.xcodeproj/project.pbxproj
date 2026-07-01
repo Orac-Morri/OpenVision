@@ -33,6 +33,7 @@
 		758F66B632E8A1CBDBB40094 /* OpenClawSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFCA981F220C3F978645D70 /* OpenClawSettingsView.swift */; };
 		7694BA570FF3ACCF29E2C5C9 /* GeminiLiveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADCFF581A7AE50FBF35EA257 /* GeminiLiveService.swift */; };
 		788325C7CD43F35F069DCDCE /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E89F8710F8A609C73C717C0 /* ConversationListView.swift */; };
+		79216FADF7B5CD556FD6FDEE /* FaceRecognitionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D80EDF3FFC20786ED7F6654 /* FaceRecognitionService.swift */; };
 		79C519EDCA508C00DAAB1F6E /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42C04946FFC3B3A9DE78573 /* VoiceSettingsView.swift */; };
 		7C118644498027D47E828115 /* wake_word_ding.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 98C627C6F13B708A7A8D2CDA /* wake_word_ding.mp3 */; };
 		81F38E617E61131E8C87620B /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = A7FF778329794C28B434EEAA /* MWDATCore */; };
@@ -77,6 +78,7 @@
 		601D21AA8114E457F40C6C4A /* VoiceAgentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAgentView.swift; sourceTree = "<group>"; };
 		60E2210A5A20177647BDB5AD /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		6188DD26571BACB30096654D /* Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversation.swift; sourceTree = "<group>"; };
+		6D80EDF3FFC20786ED7F6654 /* FaceRecognitionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceRecognitionService.swift; sourceTree = "<group>"; };
 		7376B3EE1F53DF1BD56B1095 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		773753CA73EBA9F8C78BD8E4 /* GeminiSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiSettingsView.swift; sourceTree = "<group>"; };
 		7946C8232CEA5A362056AC2A /* OpenClawProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawProtocol.swift; sourceTree = "<group>"; };
@@ -267,6 +269,7 @@
 				B929FE4E9AB889620F64C057 /* GemmaLocal */,
 				867CD5E802B9354B21C23D0B /* OpenClaw */,
 				C6EBF5734AD805262779ECA5 /* TTS */,
+				FE408AE66B4AA82F2C43B752 /* Vision */,
 				500CF1A1CC87EC3E3E60B086 /* Voice */,
 			);
 			path = Services;
@@ -372,6 +375,14 @@
 				0E256E8AF9CAB4123C91B979 /* TranscriptBubble.swift */,
 			);
 			path = Components;
+			sourceTree = "<group>";
+		};
+		FE408AE66B4AA82F2C43B752 /* Vision */ = {
+			isa = PBXGroup;
+			children = (
+				6D80EDF3FFC20786ED7F6654 /* FaceRecognitionService.swift */,
+			);
+			path = Vision;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -497,6 +508,7 @@
 				E002D977473CAE9959691682 /* Conversation.swift in Sources */,
 				788325C7CD43F35F069DCDCE /* ConversationListView.swift in Sources */,
 				DBAD28D914AC862DB5E6F367 /* ConversationManager.swift in Sources */,
+				79216FADF7B5CD556FD6FDEE /* FaceRecognitionService.swift in Sources */,
 				7694BA570FF3ACCF29E2C5C9 /* GeminiLiveService.swift in Sources */,
 				F1D86E9A3AB2A994A205AB83 /* GeminiSettingsView.swift in Sources */,
 				BFC445B65C5C0BE610EC719E /* GeminiVisionService.swift in Sources */,
