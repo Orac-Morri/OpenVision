@@ -262,6 +262,122 @@ final class GemmaLocalService: ObservableObject {
         setProcessing(false)
     }
 
+    // MARK: - Agentic intent routing
+
+    struct FaceIntent {
+        let action: String   // "remember" | "identify" | "forget" | "list"
+        let name: String     // person's name (may be empty for identify/list)
+    }
+
+    /// Use the on-device model to decide whether a spoken command is a face-recognition request,
+    /// and extract the action + name — no keyword matching. Returns nil if the model isn't loaded
+    /// or the command isn't about people/faces.
+    func classifyFaceIntent(_ command: String) async -> FaceIntent? {
+        guard modelContainer != nil else { return nil }
+        let system = "You are an intent router for smart glasses that can recognize faces. Output ONLY compact JSON, nothing else."
+        let user = """
+        The user said: "\(command)"
+
+        Decide which action they want (looking at a person through the glasses):
+        - "remember": save the face of the person in view under a name they provided
+        - "identify": tell them who the person in view is
+        - "forget": remove a previously saved person by name
+        - "list": list the people already known
+        - "none": the command is NOT about recognizing, remembering, or naming a person
+
+        Reply ONLY as JSON: {"action":"remember|identify|forget|list|none","name":"<the person's name if they said one, otherwise empty>"}
+        """
+        let messages: [Chat.Message] = [
+            .init(role: .system, content: system),
+            .init(role: .user, content: user)
+        ]
+        guard let output = try? await rawGenerate(messages: messages, maxTokens: 60, temperature: 0.0) else {
+            return nil
+        }
+        NSLog("[OV] classifyFaceIntent(\"%@\") -> %@", command, output)
+        // Extract the first {...} JSON object from the output.
+        guard let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}"),
+              start < end,
+              let data = String(output[start...end]).data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let action = (obj["action"] as? String)?.lowercased(),
+              ["remember", "identify", "forget", "list"].contains(action) else {
+            return nil
+        }
+        let name = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return FaceIntent(action: action, name: name)
+    }
+
+    enum RouteResult {
+        case face(FaceIntent)
+        case answer(String)
+    }
+
+    /// ONE generation that either routes a face command OR answers normally. This replaces the
+    /// classify-then-answer pair (two generations), which doubled peak memory and tipped the app
+    /// over the 6GB jetsam limit. Still fully agentic — the model decides.
+    func routeCommand(_ command: String) async -> RouteResult {
+        let system = """
+        You are a voice assistant for smart glasses that can recognize faces the user has taught you. The glasses camera can see whoever is in front of the user — you do NOT need them to show you anyone.
+
+        If the user wants a face action, reply with ONLY one JSON object and nothing else (the app will take the photo):
+        - Identify / name the person in view: {"face":"identify","name":""}
+        - Save/remember the person under a name: {"face":"remember","name":"THE_NAME"}
+        - Forget a saved person: {"face":"forget","name":"THE_NAME"}
+        - List the people you know: {"face":"list","name":""}
+
+        Examples:
+        User: who is this → {"face":"identify","name":""}
+        User: who is he → {"face":"identify","name":""}
+        User: who is she → {"face":"identify","name":""}
+        User: who am I looking at → {"face":"identify","name":""}
+        User: do you know this person → {"face":"identify","name":""}
+        User: remember this is Sara → {"face":"remember","name":"Sara"}
+        User: her name is Priya → {"face":"remember","name":"Priya"}
+        User: save his face as Alex → {"face":"remember","name":"Alex"}
+        User: forget Sara → {"face":"forget","name":"Sara"}
+        User: who do you know → {"face":"list","name":""}
+
+        For anything NOT about recognizing people (questions, chat, facts), just answer helpfully in 1-3 short sentences. Do NOT mention faces or JSON.
+        """
+        let messages: [Chat.Message] = [
+            .init(role: .system, content: system),
+            .init(role: .user, content: command)
+        ]
+        guard let output = try? await rawGenerate(messages: messages, maxTokens: 200, temperature: 0.3) else {
+            return .answer("Sorry, I couldn't process that — please try again.")
+        }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        NSLog("[OV] routeCommand(\"%@\") -> %@", command, String(trimmed.prefix(120)))
+        if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}"), start < end,
+           let data = String(trimmed[start...end]).data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let action = (obj["face"] as? String)?.lowercased(),
+           ["remember", "identify", "forget", "list"].contains(action) {
+            let name = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return .face(FaceIntent(action: action, name: name))
+        }
+        return .answer(trimmed)
+    }
+
+    /// One-shot text generation (no streaming/callbacks) — used by the intent router.
+    private func rawGenerate(messages: [Chat.Message], maxTokens: Int, temperature: Float) async throws -> String {
+        guard let container = modelContainer else { throw GemmaLocalError.modelNotLoaded }
+        guard UIApplication.shared.applicationState != .background else { throw GemmaLocalError.backgrounded }
+        let userInput = UserInput(chat: messages)
+        let stream = try await container.perform { (context: ModelContext) in
+            let lmInput = try await context.processor.prepare(input: userInput)
+            let params = GenerateParameters(maxTokens: maxTokens, temperature: temperature)
+            return try MLXLMCommon.generate(input: lmInput, parameters: params, context: context)
+        }
+        var full = ""
+        for await item in stream {
+            if case .chunk(let piece) = item { full += piece }
+        }
+        Memory.clearCache()
+        return full
+    }
+
     // MARK: - Helpers
 
     private func setState(_ state: AIConnectionState) {

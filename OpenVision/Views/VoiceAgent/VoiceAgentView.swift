@@ -915,10 +915,14 @@ struct VoiceAgentView: View {
         lastProcessedCommand = command
         lastProcessedAt = now
 
-        // Face recognition — handled fully on-device (Apple Vision), independent of the AI backend.
-        if await handleFaceCommandIfNeeded(command) {
-            agentState = isSessionActive ? .listening : .idle
-            return
+        // Face recognition on CLOUD backends: classify via the on-device model (if loaded) up front.
+        // On the Local backend we DON'T do this — routing is merged into the single generation below
+        // (case .localGemma) so we never run two Gemma generations per command (memory/jetsam).
+        if settingsManager.settings.aiBackend != .localGemma {
+            if await handleFaceCommandIfNeeded(command) {
+                agentState = isSessionActive ? .listening : .idle
+                return
+            }
         }
 
         agentState = .thinking
@@ -952,15 +956,22 @@ struct VoiceAgentView: View {
 
             case .localGemma:
                 if isPhotoCommand {
-                    // Local Gemma is text-only (stable, low-memory). Camera/vision needs a cloud
-                    // backend — guide the user to switch instead of running on-device vision.
+                    // Local Gemma is text-only for scene description (vision needs a cloud backend).
                     print("[VoiceAgentView] Photo command on Local Gemma — text-only, guiding to cloud")
                     agentState = isSessionActive ? .listening : .idle
-                    speakResponse("Local mode is text only. To use the camera, switch to Gemini or OpenClaw in Settings.")
+                    speakResponse("Local mode is text only. To use the camera to describe things, switch to Gemini or OpenClaw in Settings.")
                 } else {
-                    try await GemmaLocalService.shared.sendMessage(command)
+                    // ONE generation: the model either routes a face action or answers. Face
+                    // recognition (camera + Apple Vision) still runs on-device.
+                    switch await GemmaLocalService.shared.routeCommand(command) {
+                    case .face(let intent):
+                        await handleFaceIntent(intent)
+                        agentState = isSessionActive ? .listening : .idle
+                    case .answer(let text):
+                        speakResponse(text)
+                        agentState = isSessionActive ? .listening : .idle
+                    }
                 }
-                // Response + state updates handled by GemmaLocalService callbacks
             }
         } catch {
             errorMessage = "Failed to send command: \(error.localizedDescription)"
@@ -1184,88 +1195,47 @@ struct VoiceAgentView: View {
 
     // MARK: - Face recognition
 
-    /// Handle face commands ("remember this is …", "who is this", "forget …", "list faces").
-    /// Returns true if the command was a face command and was handled.
+    /// Route face-recognition commands using the on-device model as an intent classifier
+    /// (agentic — no keyword matching, like OpenGlasses' face_recognition tool). Returns true
+    /// if the command was a face command and was handled.
     private func handleFaceCommandIfNeeded(_ command: String) async -> Bool {
-        let lower = command.lowercased()
-        let face = FaceRecognitionService.shared
-        NSLog("[OV] face-command check: \"%@\" -> extracted name: %@", command, extractFaceName(from: command, lower: lower) ?? "none")
-
-        // Identify: many phrasings — "who is this", "tell me who she is", "who's she", etc.
-        let identify = ["who is this", "who's this", "who is that", "who's that",
-                        "who am i looking at", "who she is", "who he is", "who is she",
-                        "who is he", "who's she", "who's he", "tell me who", "who is it",
-                        "who's it", "do you know this person", "do you know them",
-                        "do you know her", "do you know him", "who is in front of me",
-                        "recognize this person", "recognise this person", "recognize her",
-                        "recognise her", "recognize him", "recognise him", "identify this person",
-                        "identify her", "identify him", "who is in front"]
-        if identify.contains(where: { lower.contains($0) }) {
-            NSLog("[OV] face identify command: \"%@\"", command)
-            agentState = .thinking
-            guard let image = await currentGlassesImage() else {
-                speakResponse("I couldn't get a picture from the glasses. Make sure they're connected.")
-                return true
-            }
-            speakResponse(await face.identify(in: image))
-            return true
+        guard let intent = await GemmaLocalService.shared.classifyFaceIntent(command) else {
+            return false   // model not loaded, or not a face command
         }
-
-        // Forget: "forget John"
-        if lower.hasPrefix("forget ") {
-            speakResponse(face.forgetFace(name: String(command.dropFirst("forget ".count))))
-            return true
-        }
-
-        // List: "list faces / who do you know"
-        if lower.contains("list faces") || lower.contains("list people") || lower.contains("who do you know") {
-            speakResponse(face.listKnownFaces())
-            return true
-        }
-
-        // Enroll: "remember this is X" and variants
-        if let name = extractFaceName(from: command, lower: lower) {
-            agentState = .thinking
-            guard let image = await currentGlassesImage() else {
-                speakResponse("I couldn't get a picture from the glasses. Make sure they're connected.")
-                return true
-            }
-            speakResponse(await face.rememberFace(name: name, from: image))
-            return true
-        }
-
-        return false
+        await handleFaceIntent(intent)
+        return true
     }
 
-    /// Pull the name out of an enroll command. Handles many phrasings:
-    /// "remember this is Neha", "remember she is Neha", "remember her name is Neha",
-    /// "take a picture and remember he is Sam", "save this face as Alex".
-    private func extractFaceName(from command: String, lower: String) -> String? {
-        // Gate: only treat as a face-enroll command if it's clearly about remembering a person.
-        let isEnroll = lower.contains("remember") || lower.contains("save this face")
-            || lower.contains("save her face") || lower.contains("save his face")
-        guard isEnroll else { return nil }
-
-        // The name follows one of these connectors. Most specific first. Includes contractions
-        // ("she's", "her name's") because the speech recognizer often transcribes those.
-        let connectors = ["this person is ", "her name is ", "her name's ", "his name is ",
-                          "his name's ", "their name is ", "name is ", "name's ", "this is ",
-                          "this's ", "she is ", "she's ", "he is ", "he's ", "it is ", "it's ",
-                          "person is ", "person's ", "this face as ", "face as ", "person as ",
-                          "them as ", "her as ", "him as ", "called ", " as "]
-        for connector in connectors {
-            guard let range = lower.range(of: connector) else { continue }
-            let offset = lower.distance(from: lower.startIndex, to: range.upperBound)
-            guard offset <= command.count else { continue }
-            var name = String(command[command.index(command.startIndex, offsetBy: offset)...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            // Trim trailing filler like "Neha and save a contact" -> "Neha".
-            if let cut = name.range(of: " and ") { name = String(name[..<cut.lowerBound]) }
-            name = name.components(separatedBy: CharacterSet(charactersIn: ",.?!")).first ?? name
-            name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty && name.count <= 40 { return name }
+    /// Carry out a face action (camera capture + Apple Vision), shared by the cloud-backend
+    /// classifier path and the Local-backend single-pass router.
+    private func handleFaceIntent(_ intent: GemmaLocalService.FaceIntent) async {
+        let face = FaceRecognitionService.shared
+        switch intent.action {
+        case "identify":
+            agentState = .thinking
+            guard let image = await currentGlassesImage() else {
+                speakResponse("I couldn't get a picture from the glasses. Make sure they're connected.")
+                return
+            }
+            speakResponse(await face.identify(in: image))
+        case "remember":
+            agentState = .thinking
+            guard !intent.name.isEmpty else {
+                speakResponse("Sure — what's their name?")
+                return
+            }
+            guard let image = await currentGlassesImage() else {
+                speakResponse("I couldn't get a picture from the glasses. Make sure they're connected.")
+                return
+            }
+            speakResponse(await face.rememberFace(name: intent.name, from: image))
+        case "forget":
+            speakResponse(face.forgetFace(name: intent.name))
+        case "list":
+            speakResponse(face.listKnownFaces())
+        default:
+            break
         }
-        return nil
     }
 
     /// Get a fresh UIImage frame from the glasses camera, then turn the camera off
@@ -1273,18 +1243,16 @@ struct VoiceAgentView: View {
     private func currentGlassesImage() async -> UIImage? {
         guard glassesManager.isRegistered else { return nil }
         if !glassesManager.isStreaming { await glassesManager.startStreaming() }
-        glassesManager.lastFrame = nil
         var frame: UIImage?
-        for _ in 0..<30 {   // up to ~3s for a fresh frame
+        for _ in 0..<40 {   // up to ~4s for a fresh frame
             if let f = glassesManager.lastFrame { frame = f; break }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         if frame == nil { frame = glassesManager.lastFrame }
-        // Capture the frame first, then stop the stream (stopStreaming clears lastFrame).
         if glassesManager.isStreaming && !isLiveVideoMode {
             await glassesManager.stopStreaming()
         }
-        // The camera disrupted the mic audio route — bring wake-word listening back.
+        // The glasses camera (0.4.0, Bluetooth) disrupts the mic route — restore listening.
         resumeWakeWordListening()
         return frame
     }
@@ -1345,8 +1313,6 @@ struct VoiceAgentView: View {
         if imageData != nil && glassesManager.isStreaming && !isLiveVideoMode {
             NSLog("[OV] photo captured — stopping camera (click and go)")
             await glassesManager.stopStreaming()
-            // Camera disrupted the mic audio route — restore wake-word listening.
-            resumeWakeWordListening()
         }
 
         // Send with or without image

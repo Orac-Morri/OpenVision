@@ -1,10 +1,10 @@
 // OpenVision - FaceRecognitionService.swift
 // On-device face recognition using Apple's Vision framework — no cloud, no model download.
 //
-// Pipeline: detect faces (VNDetectFaceRectangles) → crop → make a feature vector
-// (VNGenerateImageFeaturePrint) → match against saved faces by cosine similarity.
-// Faces are stored locally as JSON (name + feature vector). Approximate, not biometric-grade,
-// but private and lightweight — good for recognising a handful of people you've enrolled.
+// Pipeline: detect faces (VNDetectFaceRectangles) → crop → make a feature print
+// (VNGenerateImageFeaturePrint) → match against saved faces with Vision's own
+// `computeDistance` (lower = more similar). Feature prints are stored locally as archived
+// observations. Approximate, not biometric-grade, but private and lightweight.
 
 import Foundation
 import Vision
@@ -20,56 +20,57 @@ final class FaceRecognitionService: ObservableObject {
     struct KnownFace: Codable, Identifiable {
         var id = UUID()
         var name: String
-        let faceprint: [Float]
+        let printData: Data   // archived VNFeaturePrintObservation
         var lastSeen: Date
     }
 
-    /// Cosine-similarity threshold (0–1). Higher = stricter. Tune if you get false matches.
-    private let matchThreshold: Float = 0.6
+    /// Max feature-print distance to count as a match (lower distance = more similar).
+    /// Tuned from real device data: correct matches measured ≤ 0.48, wrong faces / non-faces
+    /// ≥ 0.53, so 0.50 cleanly separates them and rejects the "no face → names someone" case.
+    private let maxMatchDistance: Float = 0.5
 
     private let storageURL: URL
 
     private init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        storageURL = docs.appendingPathComponent("known_faces.json")
+        storageURL = docs.appendingPathComponent("known_faces_v2.json")
         load()
     }
 
     // MARK: - Enroll / manage
 
-    /// Remember the face in `image` under `name`. Updates the stored print if the name exists.
     func rememberFace(name: String, from image: UIImage) async -> String {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty else { return "What name should I save them under?" }
         guard let cgImage = image.cgImage else { return "I couldn't get a clear picture — try again." }
 
-        let prints = await Self.faceprints(in: cgImage)
-        guard let faceprint = prints.first else {
+        let prints = await Self.facePrintData(in: cgImage)
+        guard let printData = prints.first else {
             return "I don't see a face clearly. Have them look toward you and try again."
         }
 
         if let idx = knownFaces.firstIndex(where: { $0.name.lowercased() == cleanName.lowercased() }) {
-            knownFaces[idx] = KnownFace(id: knownFaces[idx].id, name: cleanName, faceprint: faceprint, lastSeen: Date())
+            knownFaces[idx] = KnownFace(id: knownFaces[idx].id, name: cleanName, printData: printData, lastSeen: Date())
         } else {
-            knownFaces.append(KnownFace(name: cleanName, faceprint: faceprint, lastSeen: Date()))
+            knownFaces.append(KnownFace(name: cleanName, printData: printData, lastSeen: Date()))
         }
         save()
         return "Got it — I'll remember \(cleanName)."
     }
 
-    /// Identify who is in `image`. Returns a spoken-friendly answer.
     func identify(in image: UIImage) async -> String {
         guard !knownFaces.isEmpty else {
-            return "I don't know anyone yet. Say “remember this is …” to teach me a face."
+            return "I don't know anyone yet. Say “remember this person as …” to teach me a face."
         }
         guard let cgImage = image.cgImage else { return "I couldn't get a clear picture — try again." }
 
-        let prints = await Self.faceprints(in: cgImage)
+        let prints = await Self.facePrintData(in: cgImage)
         guard !prints.isEmpty else { return "I don't see anyone right now." }
 
+        let known = knownFaces.map { (name: $0.name, data: $0.printData) }
         var names: [String] = []
-        for fp in prints {
-            if let idx = bestMatch(for: fp) {
+        for query in prints {
+            if let idx = Self.bestMatchIndex(query: query, known: known, maxDistance: maxMatchDistance) {
                 knownFaces[idx].lastSeen = Date()
                 names.append(knownFaces[idx].name)
             }
@@ -97,39 +98,35 @@ final class FaceRecognitionService: ObservableObject {
         return names.count == 1 ? "I know \(names[0])." : "I know \(names.count) people: \(names.joined(separator: ", "))."
     }
 
-    // MARK: - Vision (runs off the main thread)
+    // MARK: - Vision (off the main thread; returns Sendable Data)
 
-    /// Detect faces in `cgImage` and return a feature vector per face.
-    nonisolated private static func faceprints(in cgImage: CGImage) async -> [[Float]] {
+    /// Detect faces and return each face's feature print, archived as Data.
+    nonisolated private static func facePrintData(in cgImage: CGImage) async -> [Data] {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: (try? computeFaceprints(cgImage)) ?? [])
+                continuation.resume(returning: (try? computeFacePrintData(cgImage)) ?? [])
             }
         }
     }
 
-    nonisolated private static func computeFaceprints(_ cgImage: CGImage) throws -> [[Float]] {
+    nonisolated private static func computeFacePrintData(_ cgImage: CGImage) throws -> [Data] {
         let faceRequest = VNDetectFaceRectanglesRequest()
         try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([faceRequest])
         guard let faces = faceRequest.results, !faces.isEmpty else { return [] }
 
-        var prints: [[Float]] = []
+        var results: [Data] = []
         for face in faces.prefix(5) {
             guard let cropped = cropFace(from: cgImage, boundingBox: face.boundingBox) else { continue }
             let printRequest = VNGenerateImageFeaturePrintRequest()
             try VNImageRequestHandler(cgImage: cropped, options: [:]).perform([printRequest])
             guard let observation = printRequest.results?.first else { continue }
-
-            let data = observation.data
-            let count = data.count / MemoryLayout<Float>.size
-            var floats = [Float](repeating: 0, count: count)
-            _ = floats.withUnsafeMutableBytes { data.copyBytes(to: $0) }
-            prints.append(floats)
+            if let data = try? NSKeyedArchiver.archivedData(withRootObject: observation, requiringSecureCoding: true) {
+                results.append(data)
+            }
         }
-        return prints
+        return results
     }
 
-    /// Crop to the face region (Vision boxes are normalised, origin bottom-left) with padding.
     nonisolated private static func cropFace(from cgImage: CGImage, boundingBox: CGRect) -> CGImage? {
         let w = CGFloat(cgImage.width), h = CGFloat(cgImage.height)
         let pad: CGFloat = 0.15
@@ -144,24 +141,24 @@ final class FaceRecognitionService: ObservableObject {
         return cgImage.cropping(to: rect)
     }
 
-    // MARK: - Matching
+    // MARK: - Matching (Vision's computeDistance; lower = more similar)
 
-    private func bestMatch(for faceprint: [Float]) -> Int? {
+    nonisolated private static func bestMatchIndex(query queryData: Data,
+                                                   known: [(name: String, data: Data)],
+                                                   maxDistance: Float) -> Int? {
+        guard let query = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: queryData) else {
+            return nil
+        }
         var best: Int?
-        var bestScore: Float = matchThreshold
-        for (idx, known) in knownFaces.enumerated() where known.faceprint.count == faceprint.count {
-            let score = Self.cosineSimilarity(faceprint, known.faceprint)
-            if score > bestScore { bestScore = score; best = idx }
+        var bestDist = maxDistance
+        for (i, k) in known.enumerated() {
+            guard let stored = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: k.data) else { continue }
+            var dist: Float = 0
+            guard (try? query.computeDistance(&dist, to: stored)) != nil else { continue }
+            NSLog("[OV] face distance to %@: %.4f (threshold %.2f)", k.name, dist, maxDistance)
+            if dist < bestDist { bestDist = dist; best = i }
         }
         return best
-    }
-
-    nonisolated private static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count, !a.isEmpty else { return 0 }
-        var dot: Float = 0, magA: Float = 0, magB: Float = 0
-        for i in 0..<a.count { dot += a[i] * b[i]; magA += a[i] * a[i]; magB += b[i] * b[i] }
-        let mag = sqrt(magA) * sqrt(magB)
-        return mag > 0 ? dot / mag : 0
     }
 
     // MARK: - Persistence
