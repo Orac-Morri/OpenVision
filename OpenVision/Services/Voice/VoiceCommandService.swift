@@ -146,8 +146,7 @@ final class VoiceCommandService: ObservableObject {
             throw VoiceCommandError.requestCreationFailed
         }
 
-        recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.taskHint = .dictation
+        configureRecognitionRequest(recognitionRequest)
 
         // Get input node
         let inputNode = audioEngine.inputNode
@@ -195,12 +194,35 @@ final class VoiceCommandService: ObservableObject {
         recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             Task { @MainActor in
                 self?.handleRecognitionResult(result: result, error: error)
+                self?.restartIfRecognizerEnded(result: result, error: error)
             }
         }
 
         isListening = true
         state = isWakeWordEnabled ? .idle : .listening
         print("[VoiceCommand] Started listening - audio engine running")
+    }
+
+    /// Prime the recognizer for the wake phrase and short-phrase detection. `contextualStrings`
+    /// biases recognition toward "Ok Vision", which is the single biggest factor in reliably
+    /// hearing the wake word over the low-quality glasses Bluetooth-HFP mic (8 kHz). `.search`
+    /// (short phrase) beats `.dictation` (long-form) for a quick wake word + command.
+    private func configureRecognitionRequest(_ request: SFSpeechAudioBufferRecognitionRequest) {
+        request.shouldReportPartialResults = true
+        request.taskHint = .search
+        var phrases = ["Ok Vision", "Okay Vision", "Hey Vision", "Vision"]
+        if !wakeWord.isEmpty { phrases.insert(wakeWord, at: 0) }
+        request.contextualStrings = phrases
+    }
+
+    /// SFSpeechRecognizer stops after ~1 minute or when it emits a final result / errors. While
+    /// idling for the wake word that would silently kill listening ("responds once in a while"),
+    /// so restart a fresh recognizer whenever the task ends and we're still meant to be listening.
+    private func restartIfRecognizerEnded(result: SFSpeechRecognitionResult?, error: Error?) {
+        let ended = (error != nil) || (result?.isFinal ?? false)
+        guard ended, isListening, isWakeWordEnabled, state == .idle else { return }
+        print("[VoiceCommand] Recognizer ended while idle — restarting wake-word listener")
+        restartRecognition()
     }
 
     /// Stop listening
@@ -261,8 +283,7 @@ final class VoiceCommandService: ObservableObject {
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else { return }
 
-        recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.taskHint = .dictation
+        configureRecognitionRequest(recognitionRequest)
 
         // Reinstall tap
         guard let audioEngine = audioEngine else { return }
@@ -292,6 +313,7 @@ final class VoiceCommandService: ObservableObject {
         recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             Task { @MainActor in
                 self?.handleRecognitionResult(result: result, error: error)
+                self?.restartIfRecognizerEnded(result: result, error: error)
             }
         }
 
