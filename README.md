@@ -64,6 +64,11 @@ Say **"Ok Vision, start video stream"** to enter a live mode where the glasses c
 ### On-Device Photos (SmolVLM2)
 With **SmolVLM2** selected as your local model, **"Ok Vision, take a photo and tell me what this is"** captures a frame from the glasses and answers **entirely on-device** — nothing leaves the phone. Other local models stay text-only and hand camera questions to a cloud backend. (Images are resized on-device to keep the vision encoder within iOS memory limits.)
 
+### Read Mode — On-Device Text Reading (Accessibility)
+- Say **"Ok Vision, read this"** (a sign, label, menu, receipt, mail, screen) to hear it read aloud, or ask about it: **"what's the total?"**, **"when does this expire?"**
+- Reading runs **entirely on-device via Apple Vision OCR** — deterministic (it can't hallucinate) and works **offline**. Questions are answered grounded strictly in the extracted text, and it says "I can't read that clearly — hold steady / move closer" rather than guessing.
+- Hands-free and audio-first — designed with blind/low-vision use in mind, useful for everyone.
+
 ### On-Device Neural Voice (Kokoro)
 - A **natural, offline, private voice** (Kokoro-82M) running on-device via MLX — selectable from a Speech Engine dropdown with a voice picker.
 - Apple's system voice stays the default (with Premium/Enhanced voice support); Kokoro is the upgrade when you want lifelike speech with **nothing leaving the phone**.

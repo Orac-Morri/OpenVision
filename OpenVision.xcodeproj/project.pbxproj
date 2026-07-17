@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		08440F1603742AB28B2B4815 /* KokoroSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 1DCD8AD4861E50005E48943D /* KokoroSwift */; };
+		0B0E84D4F82B3A393585AB00 /* TextReaderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14800754D13AE292A7FFF171 /* TextReaderService.swift */; };
 		0CD9B9D7D0854411C0A04148 /* AIBackendProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900F00D2451513A29BC4C6F /* AIBackendProtocol.swift */; };
 		1339DF5D7DB28F0048D95846 /* WebSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D24962AB43639AF3B59662 /* WebSearchService.swift */; };
 		186FD72F369F1962B15EB858 /* OpenClawService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C539AB340611B1A6CCC50F17 /* OpenClawService.swift */; };
@@ -79,6 +80,7 @@
 		01CC70E5327BD07B920833FC /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
 		09CF2D46A856380011EEC513 /* OVExceptionCatcher.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = OVExceptionCatcher.m; sourceTree = "<group>"; };
 		0E256E8AF9CAB4123C91B979 /* TranscriptBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptBubble.swift; sourceTree = "<group>"; };
+		14800754D13AE292A7FFF171 /* TextReaderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReaderService.swift; sourceTree = "<group>"; };
 		1ABBF4AC21A442A2C3CF6750 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		1DD518E30804BD392EEA0B34 /* wake_activation.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = wake_activation.mp3; sourceTree = "<group>"; };
 		2410F1B11CD5A7070F3E7590 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -469,6 +471,7 @@
 			isa = PBXGroup;
 			children = (
 				6D80EDF3FFC20786ED7F6654 /* FaceRecognitionService.swift */,
+				14800754D13AE292A7FFF171 /* TextReaderService.swift */,
 			);
 			path = Vision;
 			sourceTree = "<group>";
@@ -632,6 +635,7 @@
 				6C065C29CC13488E67A70363 /* SoundService.swift in Sources */,
 				F5155F1DD262090EC1804C5F /* SwirlOrb.swift in Sources */,
 				C328DABCDFDF6531B38D4834 /* TTSService.swift in Sources */,
+				0B0E84D4F82B3A393585AB00 /* TextReaderService.swift in Sources */,
 				456B4E46EE405F5C8F45B04D /* Theme.swift in Sources */,
 				BFD9D5E86289F987AC6931B8 /* TranscriptBubble.swift in Sources */,
 				8BB3557D9BE4E9F2399BDBC1 /* VoiceAgentView.swift in Sources */,

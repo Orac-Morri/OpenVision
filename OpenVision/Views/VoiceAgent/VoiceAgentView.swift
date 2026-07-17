@@ -3,6 +3,7 @@
 
 import SwiftUI
 import Speech
+import CoreImage
 
 struct VoiceAgentView: View {
     // MARK: - Environment
@@ -1069,6 +1070,14 @@ struct VoiceAgentView: View {
         lastProcessedCommand = command
         lastProcessedAt = now
 
+        // Read Mode: "read this / read the menu / what does this say" → on-device OCR (Apple Vision),
+        // then read aloud or answer a question grounded in the extracted text. Backend-agnostic and
+        // deterministic — the reading itself can't hallucinate.
+        if isReadCommand(lowerCommand) {
+            await handleReadText(command)
+            return
+        }
+
         // Face recognition on CLOUD backends: classify via the on-device model (if loaded) up front.
         // On the Local backend we DON'T do this — routing is merged into the single generation below
         // (case .localGemma) so we never run two Gemma generations per command (memory/jetsam).
@@ -1619,6 +1628,84 @@ struct VoiceAgentView: View {
         case .geminiLive:
             // Gemini Live streams video continuously; just send the text prompt.
             try await GeminiLiveService.shared.sendText(prompt)
+        }
+    }
+
+    // MARK: - Read Mode (on-device OCR)
+
+    /// Distinctive triggers for reading text — kept specific so ordinary questions don't match.
+    private func isReadCommand(_ lower: String) -> Bool {
+        if lower.hasPrefix("read ") { return true }
+        let triggers = [
+            "read this", "read that", "read it", "read the", "read out", "read aloud",
+            "read me the", "read this text", "read the text", "read what",
+            "what does this say", "what does it say", "what does that say", "can you read"
+        ]
+        return triggers.contains { lower.contains($0) }
+    }
+
+    /// A specific question about the text (→ grounded LLM answer) vs. a bare "read it" (→ read all).
+    private func readIsSpecificQuestion(_ lower: String) -> Bool {
+        let markers = ["how much", "how many", "what's the", "what is the", "whats the",
+                       "what's on", "the total", "the price", "the cost", "the amount",
+                       "expire", "expiry", "expiration", "when ", "which ", "the date",
+                       "the time", "phone number", "the number", "ingredients", "calories",
+                       "who ", "where ", "the address"]
+        return markers.contains { lower.contains($0) }
+    }
+
+    /// Read Mode: capture a frame, OCR it on-device (Apple Vision), then read it aloud or answer a
+    /// question grounded in the extracted text. Never invents text; abstains with guidance when it
+    /// can't read one (false detail is especially harmful when the user can't verify it).
+    private func handleReadText(_ command: String) async {
+        agentState = .thinking
+
+        // Click-and-go capture, same pattern as the photo path.
+        if glassesManager.isRegistered && !glassesManager.isStreaming {
+            await glassesManager.startStreaming()
+        }
+        let imageData = await freshLiveFrame()
+        if imageData != nil && glassesManager.isStreaming && !isLiveVideoMode {
+            await glassesManager.stopStreaming()
+        }
+
+        guard let imageData, let image = CIImage(data: imageData) else {
+            speakResponse("I couldn't get a picture from the glasses. Make sure they're connected and try again.")
+            agentState = isSessionActive ? .listening : .idle
+            return
+        }
+
+        let ocr = await TextReaderService.shared.recognizeText(in: image)
+
+        guard ocr.hasText else {
+            // Abstain — never invent text. Blurry → hold steady; otherwise → move closer.
+            let blurry = TextReaderService.shared.sharpness(of: image) < TextReaderService.blurThreshold
+            let msg = blurry
+                ? "It looks a bit blurry — hold the glasses steady and try again."
+                : "I don't see any clear text — try moving a little closer or adjusting the angle, then ask again."
+            aiTranscript = msg
+            speakResponse(msg)
+            agentState = isSessionActive ? .listening : .idle
+            return
+        }
+
+        NSLog("[OV] Read Mode: %d lines, avg confidence %.2f", ocr.lines.count, ocr.averageConfidence)
+
+        if readIsSpecificQuestion(command.lowercased()) {
+            // Answer using ONLY the OCR text, via whichever backend is active (text-only prompt).
+            // Reply, TTS, history and state are all handled by the backend callbacks.
+            let prompt = TextReaderService.groundedPrompt(ocrText: ocr.fullText, question: command)
+            do {
+                try await sendPromptToActiveBackend(prompt, imageData: nil)
+            } catch {
+                speakResponse("Sorry, I couldn't process that. Please try again.")
+                agentState = isSessionActive ? .listening : .idle
+            }
+        } else {
+            // Bare "read this" → read the recognized text aloud.
+            aiTranscript = ocr.fullText
+            speakResponse(ocr.fullText)
+            agentState = isSessionActive ? .listening : .idle
         }
     }
 

@@ -5,6 +5,11 @@ All notable changes to OpenVision will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Read Mode** — point the glasses at text (sign, label, menu, receipt, mail, screen) and say "read this" to hear it read aloud, or ask about it ("what's the total?", "when does this expire?"). Reading is done **on-device with Apple Vision OCR** (deterministic — it can't hallucinate) and works offline; questions are answered grounded strictly in the extracted text, and it abstains with guidance rather than guessing when it can't read clearly. First feature of an accessibility-first direction. (#46)
+
 ## [2.7.0] - 2026-07-15
 
 ### Added
