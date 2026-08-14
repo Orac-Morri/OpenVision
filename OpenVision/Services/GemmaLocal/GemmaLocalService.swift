@@ -129,6 +129,17 @@ enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
         self == .fastVLM05B
     }
 
+    /// Whether this model gets the short routing prompt.
+    ///
+    /// The verbose prompt (~6,850 chars, mostly worked examples) is re-prefilled every turn, and
+    /// prefill dominates latency: telemetry measured time-to-first-token at ~5s of a ~6.4s wait.
+    /// Those examples exist for 2B-class models that mis-route without them; Bonsai is a Qwen3-8B
+    /// base and should generalise from the rules alone. Opt models in only after checking routing
+    /// still holds on device — a wrong route is far worse than a slow one.
+    var prefersConcisePrompt: Bool {
+        self == .bonsai8B
+    }
+
     static func from(modelId: String) -> GemmaLocalModel {
         allCases.first { $0.modelId == modelId } ?? .e2b
     }
@@ -902,7 +913,9 @@ final class GemmaLocalService: ObservableObject {
     /// the prompt/parsing to LocalAgent (shared with the Apple Foundation backend).
     func routeCommand(_ command: String) async -> RouteResult {
         let history = ConversationContext.shared.turns
-        return await LocalAgent.route(command, history: history) { [weak self] system, hist, user in
+        let detail: LocalAgent.PromptDetail =
+            GemmaLocalModel.from(modelId: loadedModelId ?? "").prefersConcisePrompt ? .concise : .verbose
+        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] system, hist, user in
             guard let self else { return nil }
             var messages: [Chat.Message] = [.init(role: .system, content: system)]
             for turn in hist {
@@ -918,7 +931,9 @@ final class GemmaLocalService: ObservableObject {
     /// object beginning with "{"; the caller withholds speech until it sees the output isn't JSON.
     func routeCommandStreaming(_ command: String, onPartial: @escaping (String) -> Void) async -> RouteResult {
         let history = ConversationContext.shared.turns
-        return await LocalAgent.route(command, history: history) { [weak self] system, hist, user in
+        let detail: LocalAgent.PromptDetail =
+            GemmaLocalModel.from(modelId: loadedModelId ?? "").prefersConcisePrompt ? .concise : .verbose
+        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] system, hist, user in
             guard let self else { return nil }
             var messages: [Chat.Message] = [.init(role: .system, content: system)]
             for turn in hist {

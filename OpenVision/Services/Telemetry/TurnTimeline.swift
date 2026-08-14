@@ -76,9 +76,17 @@ struct TurnTimeline: Identifiable, Sendable {
     var totalDuration: TimeInterval? { Self.delta(speechEndAt, spokeDoneAt) }
 
     /// Generation rate. Uses first-token -> done so it measures decode speed, not queueing.
+    ///
+    /// Requires a plausible window, not merely a positive one: when a backend doesn't stream,
+    /// `firstTokenAt` is backfilled to the same instant as `generationDoneAt`, leaving a
+    /// microsecond duration that divides into millions of tokens/sec and wrecks the chart scale.
+    /// No rate is better than a fictional one.
+    static let minimumRateWindow: TimeInterval = 0.05
+
     var tokensPerSecond: Double? {
         guard let tokens = tokenCount, tokens > 0,
-              let duration = generationDuration, duration > 0 else { return nil }
+              let duration = generationDuration,
+              duration >= Self.minimumRateWindow else { return nil }
         return Double(tokens) / duration
     }
 
