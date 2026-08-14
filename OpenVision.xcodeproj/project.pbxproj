@@ -664,6 +664,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				F7EEA1ED9999A23C56A77DE0 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */,
+				D98AD91CEE38EF3689DC302C /* XCRemoteSwiftPackageReference "mlx-swift" */,
 				ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				15C5A08D3F97FF9BA942B321 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				922ADEF49EB5DA6AD8635D76 /* XCRemoteSwiftPackageReference "swift-transformers" */,
@@ -1081,6 +1082,14 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 1.0.0;
+			};
+		};
+		D98AD91CEE38EF3689DC302C /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PrismML-Eng/mlx-swift.git";
+			requirement = {
+				branch = v0.31.6_prism;
+				kind = branch;
 			};
 		};
 		ECA8A07B405261A27FD7625B /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {

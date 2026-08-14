@@ -106,6 +106,15 @@ packages:
     # inaccessible. GlassesManager targets the original 0.4.0 API (was `from: 0.4.0`, which
     # floated to 0.8.0 and broke the build after 4 months of SDK drift).
     exactVersion: "0.4.0"
+  # PrismML fork of mlx-swift, adding 1-bit quantized Metal kernels (upstream PR pending).
+  # Needed to load Bonsai-8B (Qwen3-8B at 1-bit g128, 1.28 GB vs E2B's 3.6 GB). Declared at the
+  # ROOT so every consumer (mlx-swift-lm + the three vendored packages) resolves the same identity.
+  # Pinned to v0.31.6_prism, NOT the fork's default `prism` branch: `prism` is 10 commits behind and
+  # misses "gate NAX to gen-18+ (M5/gen-17 miscompute)" — a correctness fix for current Apple GPUs.
+  # Upstream base is 0.31.6 (we were on 0.31.4); Kokoro asks for >= 0.29.1, so it satisfies both.
+  mlx-swift:
+    url: https://github.com/PrismML-Eng/mlx-swift.git
+    branch: v0.31.6_prism
   mlx-swift-lm:
     url: https://github.com/ml-explore/mlx-swift-lm.git
     # Pinned to a main commit PAST the 3.31.4 tag that fixes Gemma 4 E2B loading. 3.31.4's VLM backbone
