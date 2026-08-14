@@ -830,6 +830,12 @@ final class GemmaLocalService: ObservableObject {
         }
         NSLog("[OV] GemmaLocal: generation done — %d chunks, %d chars", tokenCount, full.count)
 
+        // Telemetry: chunks are the decode steps MLX emitted, which is what tok/s should measure.
+        let generatedChunks = tokenCount
+        await MainActor.run {
+            MetricsCollector.shared.markGenerationDone(tokenCount: generatedChunks)
+        }
+
         // Release the MLX buffer cache so vision memory doesn't pile up toward the jetsam limit.
         Memory.clearCache()
 

@@ -1,0 +1,60 @@
+# OpenVision telemetry stack — InfluxDB (storage) + Grafana (dashboards).
+#
+#   cd telemetry && docker compose up -d
+#
+# Then in the app: Settings → Telemetry → enable, and point it at
+#   http://<this-machine's-LAN-IP>:8086
+# NOT localhost — that resolves to the iPhone itself. `ipconfig getifaddr en0` prints the right one.
+#
+# Everything here is for a trusted LAN: plain HTTP, fixed dev credentials, no TLS. Do not expose
+# these ports to the internet.
+
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: openvision-influx
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: openvision
+      DOCKER_INFLUXDB_INIT_PASSWORD: openvision123      # >= 8 chars or first-run setup fails
+      DOCKER_INFLUXDB_INIT_ORG: openvision
+      DOCKER_INFLUXDB_INIT_BUCKET: metrics
+      DOCKER_INFLUXDB_INIT_RETENTION: 30d
+      # Pre-set so the app can be configured before you ever open the Influx UI.
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: openvision-dev-token
+    volumes:
+      - influx-data:/var/lib/influxdb2
+      - influx-config:/etc/influxdb2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: openvision-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Single-user LAN dashboard; skip the login wall.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  influx-data:
+  influx-config:
+  grafana-data:

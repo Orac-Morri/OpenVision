@@ -72,6 +72,10 @@ targets:
         products:
           - MWDATCore
           - MWDATCamera
+      # Acoustic voice-activity detection for end-of-turn (see SpeechActivityDetector).
+      - package: FluidAudio
+        products:
+          - FluidAudio
       # On-device Gemma 4 (Local backend). MLX/MLXNN resolve transitively via these products.
       - package: mlx-swift-lm
         products:
@@ -124,6 +128,14 @@ packages:
     # NOT bumped to main HEAD: a later commit (#369) adopts a newer mlx-swift API (greatestFiniteMagnitudeArray)
     # we don't have (mlx-swift is 0.31.4, shared with the vendored Kokoro), so we pin just before it.
     revision: "68947ccdca79bcf7a26dc220f73caa060369513c"
+  # CoreML Silero VAD (Apache 2.0). Gives us ACOUSTIC end-of-speech detection: the endpoint
+  # countdown can start when the mic actually goes quiet instead of when SFSpeechRecognizer stops
+  # emitting partials (which it does in bursts with ~1s gaps mid-sentence, so transcript timing
+  # can't distinguish "still talking" from "done"). Runs on the Neural Engine — neither the GPU
+  # our MLX models use nor the CPU — so it doesn't contend with on-device inference.
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    from: "0.15.5"
   swift-huggingface:
     url: https://github.com/huggingface/swift-huggingface.git
     from: "0.1.0"

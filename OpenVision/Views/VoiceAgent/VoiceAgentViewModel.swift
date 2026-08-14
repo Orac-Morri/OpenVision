@@ -132,6 +132,9 @@ final class VoiceAgentViewModel: ObservableObject {
             // (prevents microphone picking up TTS and triggering interruption)
             voiceCommandService.isBargeInPaused = true
         } else {
+            // Playback finished — closes the turn and publishes it to the metrics sinks.
+            MetricsCollector.shared.markSpokeDone()
+
             // Resume barge-in detection
             voiceCommandService.isBargeInPaused = false
 
@@ -547,6 +550,13 @@ final class VoiceAgentViewModel: ObservableObject {
 
             self.userTranscript = command
 
+            // Telemetry: the turn is now the backend's problem — everything after this is
+            // think time, and everything before it was endpointing.
+            MetricsCollector.shared.markCommit(
+                backend: self.settingsManager.settings.aiBackend.rawValue,
+                model: self.settingsManager.settings.localGemmaModelId
+            )
+
             // History: every captured command is a user message (Meta AI records all glasses
             // prompts to its History tab; same idea, on-device).
             ConversationManager.shared.addUserMessage(command)
@@ -615,6 +625,10 @@ final class VoiceAgentViewModel: ObservableObject {
                 // while the user was silently looking around.
                 guard self.isSessionActive || self.isLiveVideoMode else { return }
                 self.aiTranscript = message
+                // Reply text is final. For non-streaming backends this is also the first output
+                // we ever saw, and markFirstToken is first-wins, so it stays accurate either way.
+                MetricsCollector.shared.markFirstToken()
+                MetricsCollector.shared.markGenerationDone()
                 if self.ttsStreaming {
                     // A streamed utterance is open (local model + Apple TTS pipelining):
                     // flush the unspoken tail and close the session.
@@ -654,6 +668,8 @@ final class VoiceAgentViewModel: ObservableObject {
             guard self.isSessionActive || self.isLiveVideoMode else { return }
             // Show tokens as they stream so it doesn't look stuck on "thinking".
             self.aiTranscript = partial
+            // First streamed token: the boundary between "backend thinking" and "producing".
+            MetricsCollector.shared.markFirstToken()
             // Apple TTS: start speaking completed sentences as they arrive (pipeline speech
             // behind generation) instead of waiting for the whole reply. Big perceived speedup,
             // and Apple TTS isn't on the GPU so it doesn't fight the on-device model.
@@ -1587,6 +1603,10 @@ final class VoiceAgentViewModel: ObservableObject {
     private func speakResponse(_ text: String) {
         guard !text.isEmpty else { return }
         recordAssistantReply(text)
+        // Perceived latency ends here: the gap between this and speechEnd is the wearer's wait.
+        // (An approximation — synthesis still has to start — but it is the moment we hand off,
+        // and the difference between Kokoro and Apple TTS shows up in `ttsLeadIn`.)
+        MetricsCollector.shared.markFirstAudio()
         // Kokoro (on-device neural) when selected + ready; otherwise the Apple system voice.
         if settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady {
             Task { await KokoroTTSService.shared.speak(text, voice: settingsManager.settings.kokoroVoice) }
