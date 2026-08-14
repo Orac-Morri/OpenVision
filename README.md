@@ -142,7 +142,7 @@ With **SmolVLM2** selected as your local model, **"Ok Vision, take a photo and t
 - Meta Ray-Ban smart glasses
 - Meta Developer account for glasses registration
 - An AI backend — one of:
-  - **Local (MLX)** — no account/key needed; a choice of on-device models (Qwen 2.5, Gemma, SmolVLM). Runs on a recent iPhone (e.g. 15 Pro/16/17)
+  - **Local (MLX)** — no account/key needed; a choice of on-device models (Bonsai 8B, Qwen 2.5, Gemma, SmolVLM). Runs on a recent iPhone (e.g. 15 Pro/16/17)
   - **Apple Intelligence** — no key or download; needs iOS 26+ on an Apple-Intelligence device (iPhone 15 Pro and newer)
   - [OpenClaw](https://github.com/openclaw/openclaw) instance
   - [Gemini API key](https://aistudio.google.com/app/apikey)
@@ -152,7 +152,7 @@ With **SmolVLM2** selected as your local model, **"Ok Vision, take a photo and t
 
 ```bash
 git clone https://github.com/rayl15/OpenVision.git
-cd OpenVision/meta-vision
+cd OpenVision
 
 # Copy config templates
 cp Config.xcconfig.example Config.xcconfig
@@ -188,14 +188,21 @@ APP_LINK_URL_SCHEME = openvision
 ### Step 4: Build & Run
 
 ```bash
+brew install xcodegen                          # one-time
+xcodebuild -downloadComponent MetalToolchain   # one-time (~688 MB, for the on-device AI shaders)
+
+xcodegen generate
 open OpenVision.xcodeproj
 ```
 
-1. Select your iOS device (not simulator)
-2. Build and run (⌘R)
-3. On first launch, go to **Settings → Glasses → Register**
-4. This opens Meta AI app to grant access
-5. Return to OpenVision
+1. Enable **Developer Mode** in the Meta AI app (Settings → About → tap the version 5×)
+2. Select your iOS device (not simulator) and unlock it
+3. Build and run (⌘R)
+4. On first launch, go to **Settings → Glasses → Register**
+5. This opens Meta AI app to grant access
+6. Return to OpenVision
+
+Full instructions, CLI build commands, and troubleshooting: **[SETUP.md](SETUP.md)**
 
 ### Step 5: Configure AI Backend
 
@@ -299,7 +306,7 @@ Face recognition, web search, and conversation memory all run on the **on-device
 | Setting | Description |
 |---------|-------------|
 | **AI Backend** | Choose Local (MLX), Apple Intelligence, OpenClaw, Gemini Live, or OpenAI |
-| **Local (MLX)** | Pick a model (Qwen 2.5, Gemma, SmolVLM), download it, or **delete to reclaim storage**. **SmolVLM2** adds on-device photo + live video |
+| **Local (MLX)** | Pick a model (Bonsai 8B, Qwen 2.5, Gemma, SmolVLM), download it, or **delete to reclaim storage**. **Bonsai 8B** is an 8B model in 1.28 GB; **SmolVLM2** adds on-device photo + live video |
 | **Apple Intelligence** | On-device model status (no key or download needed; iOS 26+) |
 | **Web Search** | **Tavily** key for real live results (news/prices/scores); DuckDuckGo fallback |
 | **OpenClaw Gateway** | WebSocket URL (e.g., `wss://localhost:18789`) |

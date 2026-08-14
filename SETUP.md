@@ -2,6 +2,21 @@
 
 Complete step-by-step guide to set up and run OpenVision.
 
+> ## Read this first: you must build from source
+>
+> Meta's Wearables Device Access Toolkit — the SDK that lets any app talk to Ray-Ban Meta
+> glasses — is in **developer preview**. Meta's own FAQ: *"Publishing is currently not available
+> during the Developer Preview phase."* Builds can only be shared through **invite-only release
+> channels, capped at 100 testers**, and only select partners may publish to the public.
+>
+> So there is **no App Store build, no TestFlight, and no downloadable IPA** — not because of
+> Apple, but because glasses features would be dead for anyone outside the developer's own Meta
+> release channel. Building it yourself sidesteps that entirely: you register your own Meta app
+> and are your own developer, so you never need an invite from anyone.
+>
+> What you need: a **Mac**, an **iPhone**, and a free **Meta developer account**. An Apple
+> Developer account is free too. The glasses are optional — the iPhone camera works as a fallback.
+
 ## Prerequisites
 
 ### Required
@@ -9,6 +24,11 @@ Complete step-by-step guide to set up and run OpenVision.
 - **Xcode 15.0** or later
 - **iOS device** running iOS 16.0+ (simulator doesn't support Bluetooth)
 - **Apple Developer Account** (free or paid)
+- **[XcodeGen](https://github.com/yonaskolb/XcodeGen)** — `brew install xcodegen`. The Xcode
+  project is generated from `project.yml`; re-run `xcodegen generate` after adding or removing files
+- **Metal Toolchain** — `xcodebuild -downloadComponent MetalToolchain` (~688 MB, one-time).
+  Recent Xcode versions ship without a Metal compiler, and the on-device AI runtime compiles its
+  own Metal shaders. Skip this and the build fails with *"cannot execute tool 'metal'"*
 
 ### Optional
 - **Meta Ray-Ban smart glasses** - For glasses integration (iPhone camera works as fallback)
@@ -21,7 +41,7 @@ Complete step-by-step guide to set up and run OpenVision.
 
 ```bash
 git clone https://github.com/rayl15/OpenVision.git
-cd OpenVision/meta-vision
+cd OpenVision
 ```
 
 ---
@@ -72,17 +92,38 @@ enum Config {
 4. Click your team name
 5. Your Team ID is shown (10 characters)
 
-### 2.4 Get Your Meta App ID (For Glasses)
+### 2.4 Get Your Meta App ID and Client Token (For Glasses)
 
 If you want to use Meta Ray-Ban glasses:
 
-1. Go to [developer.meta.com](https://developer.meta.com)
-2. Create a new app or select existing
+1. Go to [wearables.developer.meta.com](https://wearables.developer.meta.com/)
+2. Create an account, an organization, and an app
 3. Add the **Meta Wearables** product
-4. Copy your App ID from the dashboard
-5. Add it to `Config.xcconfig`
+4. Copy your **App ID** and **Client Token** from the dashboard
+5. Add both to `Config.xcconfig`, along with a URL scheme:
 
-**Note:** You can skip this if testing with iPhone camera only.
+```
+META_APP_ID = 1234567890
+CLIENT_TOKEN = AR|1234567890|your_client_token_hash
+APP_LINK_URL_SCHEME = openvision
+```
+
+`CLIENT_TOKEN` needs the **full `AR|<app id>|<hash>` form**, not just the hash.
+
+> **Leaving these as placeholders has a confusing symptom.** The app builds and launches fine,
+> but glasses registration never completes — and because the camera permission prompt sits behind
+> registration, Connect just appears to do nothing rather than reporting a credentials error.
+
+### 2.5 Enable Developer Mode in the Meta AI app
+
+**Required** — glasses will not register without it:
+
+1. Open the **Meta AI** app on your iPhone
+2. Go to **Settings → About**
+3. Tap the **version number 5 times**
+4. Toggle **Developer Mode** on
+
+**Note:** You can skip 2.4 and 2.5 if testing with the iPhone camera only.
 
 ---
 
@@ -90,20 +131,12 @@ If you want to use Meta Ray-Ban glasses:
 
 The Meta Wearables Device Access Toolkit (DAT) SDK is required for glasses integration.
 
-### Option A: Swift Package Manager (Recommended)
+**Nothing to do — this is already wired up.** `project.yml` declares the SDK
+(`https://github.com/facebook/meta-wearables-dat-ios`, pinned to `0.4.0`) and pulls in
+`MWDATCore` + `MWDATCamera`, so `xcodegen generate` and a build resolve it for you.
 
-1. Open `OpenVision.xcodeproj` in Xcode
-2. Go to **File → Add Package Dependencies**
-3. Enter URL: `https://github.com/anthropics/meta-wearables-dat-ios`
-4. Add these packages:
-   - `MWDATCore`
-   - `MWDATCamera`
-
-### Option B: Manual Download
-
-1. Download from [Meta GitHub](https://github.com/facebook/meta-wearables-dat-ios)
-2. Drag the frameworks into your project
-3. Ensure "Copy items if needed" is checked
+> The pin is deliberate: 0.6.0 made `StreamSession.init` inaccessible and 0.7.0 renamed the
+> type outright. Don't float it without updating `GlassesManager`.
 
 ---
 
@@ -157,12 +190,46 @@ Add these to your `Info.plist`:
 
 ## Step 5: Build and Run
 
-1. Connect your iOS device via USB
-2. Select your device as the run destination
-3. Press **Cmd+R** to build and run
-4. Trust the developer certificate on your device if prompted:
+### In Xcode
+
+1. Generate the project: `xcodegen generate` (re-run whenever files are added or removed)
+2. Connect your iOS device via USB and **unlock it**
+3. Select your device as the run destination
+4. Press **Cmd+R** to build and run
+5. Trust the developer certificate on your device if prompted:
    - Go to **Settings → General → VPN & Device Management**
-   - Tap your developer app and trust it
+   - Tap your developer certificate and trust it
+   - You must do this again after switching Xcode versions — the certificate changes, and until
+     it's trusted the app installs but refuses to launch
+
+### From the command line
+
+```bash
+xcodegen generate
+
+xcodebuild -scheme OpenVision -project OpenVision.xcodeproj -configuration Debug \
+  -destination 'id=<your-device-udid>' -derivedDataPath build/DerivedData \
+  -allowProvisioningUpdates -skipMacroValidation -skipPackagePluginValidation build
+
+xcrun devicectl device install app --device <your-device-udid> \
+  build/DerivedData/Build/Products/Debug-iphoneos/OpenVision.app
+```
+
+`xcrun devicectl list devices` prints your UDID.
+
+Both `-skipMacroValidation` and `-skipPackagePluginValidation` are required: the MLX packages
+ship a Swift macro and a build plugin, which Xcode's GUI trusts with a click but the CLI does not.
+
+**Run the tests** with the same flags: `xcodebuild test -scheme OpenVision -destination 'id=<udid>'`
+
+### Troubleshooting the build
+
+| Symptom | Cause |
+|---|---|
+| `cannot execute tool 'metal'` | Metal Toolchain not installed — see Prerequisites |
+| `Macro ... must be enabled` | Missing `-skipMacroValidation` |
+| `The developer disk image could not be mounted` | Device is **locked** (unlock and keep it awake), or your Xcode is older than the device's iOS — install a newer Xcode; `-downloadPlatform iOS` will *not* fix this |
+| `cannot find X in scope` after adding files | Run `xcodegen generate` |
 
 ---
 

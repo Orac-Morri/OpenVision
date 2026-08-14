@@ -5,6 +5,44 @@ All notable changes to OpenVision will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-08-14
+
+### Added
+- **Bonsai 8B** local model — an 8B-parameter model (1-bit quantized Qwen3-8B) that runs on-device in **1.28 GB**, a third of Gemma 4 E2B's footprint, with a stronger base for following instructions. Text-only; vision stays on SmolVLM2 / FastVLM
+
+### Changed
+- `mlx-swift` now resolves to the [PrismML fork](https://github.com/PrismML-Eng/mlx-swift) (pinned to `v0.31.6_prism`), which supplies the 1-bit Metal kernels that upstream mlx-swift does not have yet. All existing local models and the vendored Kokoro TTS run unchanged against it
+- **Building now requires the Metal Toolchain** (`xcodebuild -downloadComponent MetalToolchain`) and `-skipPackagePluginValidation` — see [SETUP.md](SETUP.md)
+
+### Fixed
+- Apple Intelligence web search no longer overflows the model's 4096-token context — the Tavily payload is capped and the session retries on failure (#53)
+
+## [2.9.0] - 2026-07-26
+
+### Added
+- **Document RAG** — import PDFs and text files, then ask grounded questions about them entirely on-device (embedding-based retrieval, no cloud). Includes a `search_docs` tool and **focus mode**: "open my \<doc\>" pins a document so every following question is answered from it (#52)
+- **POV session recording** — record the glasses' point of view (video + scene audio + the assistant's spoken replies) straight to Photos, for demo clips (#50)
+
+### Changed
+- Local vision turns now carry document context, and the previous model's memory is freed before a new one loads (prevents jetsam kills when switching models)
+- Kokoro TTS synthesizes per sentence rather than per reply — a long reply could previously spike memory past the jetsam limit and kill the app
+
+### Fixed
+- Wake-word reliability: canceled speech-recognition tasks no longer deliver stale callbacks that tore the recognizer down roughly once a second and shredded commands
+- The recognizer now restarts from both idle and conversation modes, so the app can no longer sit deaf after a recognizer death
+
+## [2.8.0] - 2026-07-18
+
+### Added
+- **Native productivity tools** — timers, pomodoro, reminders, calendar events, GPS+time tagged notes, and clipboard, all by voice, across four AI backends (#48)
+- **On-device Gemma 4 E2B** with native tool-calling, joining the local model lineup (#48)
+- First automated test suite (31 tests) covering date math, routing, and parsing (#49)
+- README badges and modern GitHub issue forms (#43)
+
+### Changed
+- Architecture refactor to MVVM behind an `AIBackend` protocol — views render, view models orchestrate, and adding a backend is now a conformance plus two lines. Extension guides in [docs/architecture.md](docs/architecture.md) (#49)
+- Relative time requests ("in 15 minutes") are resolved in code rather than trusted to the model, which routinely got absolute times wrong (#48)
+
 ## [2.7.0] - 2026-07-15
 
 ### Added
