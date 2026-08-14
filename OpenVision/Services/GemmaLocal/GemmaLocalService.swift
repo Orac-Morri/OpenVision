@@ -841,7 +841,11 @@ final class GemmaLocalService: ObservableObject {
             if case .chunk(let piece) = item {
                 full += piece
                 tokenCount += 1
-                if tokenCount == 1 { NSLog("[OV] GemmaLocal: first token received") }
+                if tokenCount == 1 {
+                    NSLog("[OV] GemmaLocal: first token received")
+                    // Independent of any listener — see the note in cachedGenerate.
+                    await MainActor.run { MetricsCollector.shared.markFirstToken() }
+                }
                 let snapshot = full
                 await MainActor.run { self.onPartialResponse?(snapshot) }
             }
@@ -989,6 +993,13 @@ final class GemmaLocalService: ObservableObject {
         for try await chunk in session.streamResponse(to: message) {
             if firstChunkAt == nil {
                 firstChunkAt = Date()
+                // Mark first token HERE, not from the onPartial callback. Generation is streamed
+                // internally either way, but onPartial is only supplied when the caller wants to
+                // speak mid-generation (Apple TTS). With Kokoro there is no callback, so the mark
+                // never fired: firstTokenAt got backfilled to generation-done, collapsing
+                // generation_s to ~0 and suppressing tok/s entirely — while the same time
+                // silently inflated ttft. The measurement changed, not the work.
+                await MainActor.run { MetricsCollector.shared.markFirstToken() }
                 NSLog("[OV] ttft breakdown: session→first chunk %.3fs (session %@, history seeded %@, message %d chars)",
                       Date().timeIntervalSince(genStart),
                       seededHistory ? "NEW" : "reused",
