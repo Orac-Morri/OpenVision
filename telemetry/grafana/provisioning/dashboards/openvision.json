@@ -36,6 +36,29 @@
           ],
           "selected": false
         }
+      },
+      {
+        "name": "tts",
+        "label": "TTS engine",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "openvision-influx"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"metrics\", tag: \"tts\")",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ],
+          "selected": false
+        }
       }
     ]
   },
@@ -110,7 +133,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\"])\n  |> group(columns: [\"model\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\"])\n  |> group(columns: [\"model\"])"
         }
       ],
       "options": {
@@ -162,7 +185,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"commit_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\" or r._field == \"tts_lead_in_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"commit_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\" or r._field == \"tts_lead_in_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
         }
       ],
       "options": {
@@ -240,7 +263,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> median()"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> median()"
         }
       ],
       "options": {
@@ -306,7 +329,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.95)"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.95)"
         }
       ],
       "options": {
@@ -368,7 +391,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
       ],
       "options": {
@@ -569,7 +592,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> count()"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> count()"
         }
       ],
       "options": {
@@ -588,7 +611,7 @@
     {
       "id": 102,
       "type": "row",
-      "title": "Model comparison",
+      "title": "Compare models and TTS engines",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -600,18 +623,135 @@
     },
     {
       "id": 9,
+      "type": "timeseries",
+      "title": "Tokens / sec by model",
+      "description": "Decode rate per turn. One series per model + TTS engine, because Kokoro shares the GPU with the model and slows decode ~40% \u2014 comparing across engines compares two different things.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "always",
+            "pointSize": 6,
+            "fillOpacity": 5,
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 8
+              },
+              {
+                "color": "#EAB839",
+                "value": 15
+              },
+              {
+                "color": "green",
+                "value": 25
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\", \"tts\"])\n  |> group(columns: [\"model\", \"tts\"])"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "barchart",
+      "title": "Mean tokens / sec",
+      "description": "Higher is better. Speech plays at roughly 3-4 tok/s, so anything above ~8 is comfortably ahead of playback; below that you would hear gaps between sentences.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {
+            "orientation": "horizontal"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "series",
+        "showValue": "always",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> group(columns: [\"model\", \"tts\"])\n  |> mean()\n  |> keep(columns: [\"model\", \"tts\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 11,
       "type": "table",
-      "title": "Per-model summary",
-      "description": "Mean of each stage, split by the model that ACTUALLY served the turn. Use this to compare models rather than eyeballing the scatter.",
+      "title": "Per-model / per-engine summary",
+      "description": "Mean of each stage for every model + TTS combination actually used. This is the panel for answering 'which setup is better' \u2014 everything else is a view of one dimension.",
       "datasource": {
         "type": "influxdb",
         "uid": "openvision-influx"
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
-        "y": 17
+        "y": 26
       },
       "fieldConfig": {
         "defaults": {
@@ -621,17 +761,76 @@
             "align": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "tokens_per_second"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "perceived_latency_s"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "#EAB839",
+                      "value": 2
+                    },
+                    {
+                      "color": "red",
+                      "value": 3.5
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "perceived_latency_s",
+            "desc": false
+          }
+        ]
       },
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        }
-      ],
       "targets": [
         {
           "refId": "A",
@@ -639,15 +838,15 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"perceived_latency_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\")\n  |> group(columns: [\"model\", \"_field\"])\n  |> mean()\n  |> keep(columns: [\"model\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"model\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"perceived_latency_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\" or r._field == \"tokens_per_second\" or r._field == \"tts_lead_in_s\")\n  |> group(columns: [\"model\", \"tts\", \"_field\"])\n  |> mean()\n  |> keep(columns: [\"model\", \"tts\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"model\", \"tts\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
         }
       ]
     },
     {
-      "id": 10,
+      "id": 12,
       "type": "timeseries",
-      "title": "Time to first token",
-      "description": "Prompt processing before any output. On-device this scales with prompt AND conversation length, so it climbs as you talk unless history is bounded.",
+      "title": "Time to first token by model",
+      "description": "Prompt processing before any output, split by model. Climbing within a conversation means history is being reprocessed.",
       "datasource": {
         "type": "influxdb",
         "uid": "openvision-influx"
@@ -655,8 +854,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 17
+        "x": 0,
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -700,7 +899,56 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"ttft_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\"])\n  |> group(columns: [\"model\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"ttft_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\", \"tts\"])\n  |> group(columns: [\"model\", \"tts\"])"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "TTS lead-in by engine",
+      "description": "Time from the reply text being ready to the first sound. NEGATIVE means speech started while the model was still generating (pipelined, good). Around zero means serialised: nothing spoken until the whole reply exists.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tts_lead_in_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"tts\"])\n  |> group(columns: [\"tts\"])"
         }
       ],
       "options": {
@@ -723,13 +971,13 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 42
       },
       "collapsed": false,
       "panels": []
     },
     {
-      "id": 11,
+      "id": 14,
       "type": "timeseries",
       "title": "Memory",
       "description": "App footprint against remaining headroom. Two on-device models loaded at once is what killed the app before.",
@@ -741,7 +989,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -780,7 +1028,7 @@
       }
     },
     {
-      "id": 12,
+      "id": 15,
       "type": "timeseries",
       "title": "CPU and thermal",
       "description": "CPU is this app's threads summed across cores, so >100% is normal during inference. Thermal is 0-3; watch for turns slowing as it rises.",
@@ -792,7 +1040,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {

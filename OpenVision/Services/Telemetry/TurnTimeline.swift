@@ -36,6 +36,13 @@ struct TurnTimeline: Identifiable, Sendable {
     var backend: String?
     /// Model identifier when known — lets the backend group tok/s by model.
     var model: String?
+    /// Which speech engine spoke this turn ("kokoro" / "apple").
+    ///
+    /// Tagged because the engine changes the whole pipeline, not just the voice: one streams
+    /// sentences while the model generates, the other waits for the full reply. Comparing turns
+    /// without splitting on it mixes two different behaviours — and Kokoro synthesising on the
+    /// Metal GPU measurably slows decode, so tok/s is only comparable within one engine.
+    var ttsEngine: String?
     /// Tokens produced, for tok/s. Nil when the backend doesn't report it (cloud streaming).
     var tokenCount: Int?
     /// True when the turn ended early (interrupted/superseded/error) rather than completing.

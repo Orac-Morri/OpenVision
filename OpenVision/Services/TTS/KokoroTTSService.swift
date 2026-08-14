@@ -141,8 +141,61 @@ final class KokoroTTSService: ObservableObject {
 
     func stop() {
         isSpeaking = false          // breaks the per-sentence synthesis loop
+        streaming = false
+        streamStarted = false
         pendingBuffers = 0
         if audioReady { playerNode.stop() }
+    }
+
+    // MARK: - Streaming (speak sentences as the model produces them)
+
+    /// True between `beginStreaming()` and `endStreaming()`.
+    private var streaming = false
+    /// Whether any chunk has been enqueued in this streamed utterance — the first one restarts
+    /// the player to clear a previous reply, later ones append for gapless playback.
+    private var streamStarted = false
+
+    /// Open a streamed utterance.
+    ///
+    /// Kokoro is non-autoregressive (StyleTTS2 + ISTFTNet), so there is no partial audio for a
+    /// sentence still being synthesised — "streaming" here means the same thing every Kokoro
+    /// wrapper means: synthesise sentence-by-sentence and play each as it lands. `speak(_:voice:)`
+    /// already did that WITHIN a reply; what was missing is starting before the model has finished
+    /// writing the reply. Measured cost of waiting: ~1.2s per turn.
+    func beginStreaming() {
+        streaming = true
+        streamStarted = false
+        generationActive = true
+        isSpeaking = true          // pauses the recognizer for the whole utterance
+    }
+
+    /// Synthesise and enqueue ONE completed sentence. Safe to call repeatedly while the language
+    /// model is still generating.
+    func speakChunk(_ sentence: String, voice: String) async {
+        let clean = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, isModelReady, streaming else { return }
+        do {
+            let voiceArray = try await ensureVoice(voice)
+            let tts = try ensureEngine()
+            let language: Language = voice.first == "b" ? .enGB : .enUS
+            let samples: [Float] = try await Task.detached(priority: .userInitiated) {
+                let (audio, _) = try tts.generateAudio(voice: voiceArray, language: language, text: clean)
+                return audio
+            }.value
+            guard streaming, !samples.isEmpty else { return }
+            enqueue(samples, restartPlayer: !streamStarted)
+            streamStarted = true
+        } catch {
+            NSLog("[OV] Kokoro speakChunk failed: %@", "\(error)")
+        }
+    }
+
+    /// Close the streamed utterance. Playback continues until the queue drains, and `isSpeaking`
+    /// clears from the buffer-completion callback — same bookkeeping as `speak(_:voice:)`.
+    func endStreaming() {
+        streaming = false
+        generationActive = false
+        if pendingBuffers <= 0 { isSpeaking = false }
     }
 
     // MARK: - Playback (24 kHz mono float, sentence-queued)

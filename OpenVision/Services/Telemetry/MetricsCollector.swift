@@ -88,13 +88,14 @@ final class MetricsCollector: ObservableObject {
     }
 
     /// The command was handed to a backend.
-    func markCommit(backend: String?, model: String?) {
+    func markCommit(backend: String?, model: String?, ttsEngine: String? = nil) {
         if currentTurn == nil { beginTurn() }
         setIfUnset(\.commitAt)
         // Backend/model can change between commit and generation (fallbacks, model switching),
         // so take the latest rather than first-wins.
         currentTurn?.backend = backend
         currentTurn?.model = model
+        currentTurn?.ttsEngine = ttsEngine
     }
 
     /// First output token from the model.

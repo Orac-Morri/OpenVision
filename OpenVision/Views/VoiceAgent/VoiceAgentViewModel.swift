@@ -566,7 +566,8 @@ final class VoiceAgentViewModel: ObservableObject {
             let backend = self.settingsManager.settings.aiBackend
             MetricsCollector.shared.markCommit(
                 backend: backend.rawValue,
-                model: backend == .localGemma ? GemmaLocalService.shared.activeModelId : nil
+                model: backend == .localGemma ? GemmaLocalService.shared.activeModelId : nil,
+                ttsEngine: self.usingAppleTTS ? "apple" : "kokoro"
             )
 
             // History: every captured command is a user message (Meta AI records all glasses
@@ -662,10 +663,17 @@ final class VoiceAgentViewModel: ObservableObject {
                     // close it here so streamingActive/isSpeaking don't stick true and freeze the
                     // wake-word listener (queued sentences still drain and reset isSpeaking).
                     if self.ttsStreaming {
-                        self.ttsService.endStreaming()
+                        // Close whichever engine has the open utterance — leaving Kokoro's open
+                        // would strand isSpeaking true and freeze the wake-word listener.
+                        if self.usingAppleTTS {
+                            self.ttsService.endStreaming()
+                        } else {
+                            KokoroTTSService.shared.endStreaming()
+                        }
                         self.ttsStreaming = false
                     }
-                    if self.agentState == .thinking && !self.ttsService.isSpeaking {
+                    if self.agentState == .thinking
+                        && !self.ttsService.isSpeaking && !KokoroTTSService.shared.isSpeaking {
                         // Return to the live video indicator, not plain listening, while in live mode.
                         self.agentState = self.isLiveVideoMode ? .liveVideo
                             : (self.isSessionActive ? .listening : .idle)
@@ -685,7 +693,7 @@ final class VoiceAgentViewModel: ObservableObject {
             // Apple TTS: start speaking completed sentences as they arrive (pipeline speech
             // behind generation) instead of waiting for the whole reply. Big perceived speedup,
             // and Apple TTS isn't on the GPU so it doesn't fight the on-device model.
-            if self.usingAppleTTS { self.feedStreamingSpeech(partial, isFinal: false) }
+            if self.canStreamSpeech { self.feedStreamingSpeech(partial, isFinal: false) }
         }
 
         // OpenClaw extras: tool status + device-side tool calls.
@@ -1308,7 +1316,7 @@ final class VoiceAgentViewModel: ObservableObject {
         // starting with "{", so we only begin speaking once the streamed output's first non-space
         // char proves it's a plain answer — never for a structured route.
         let result: LocalAgent.RouteResult
-        if usingAppleTTS {
+        if canStreamSpeech {
             ttsStreaming = false
             ttsStreamSpokenChars = 0
             result = await llm.routeCommandStreaming(command) { [weak self] cumulative in
@@ -1577,11 +1585,21 @@ final class VoiceAgentViewModel: ObservableObject {
 
     // MARK: - TTS Integration
 
-    /// True when the active speech engine is Apple's system voice (not Kokoro). Apple TTS runs on
-    /// a system audio service — not the Metal GPU — so it can pipeline speech while the on-device
-    /// model is still generating, with no resource contention.
+    /// True when the active speech engine is Apple's system voice (not Kokoro).
+    ///
+    /// This used to also gate whether the reply was STREAMED, because Kokoro runs on the Metal GPU
+    /// alongside the on-device model and interleaving them risked contention. But waiting for the
+    /// whole reply before speaking measured at ~1.2s of extra perceived latency per turn — Kokoro
+    /// turns showed `tts_lead_in` of +0.01s (perfectly serialised) against Apple TTS's -1.4s
+    /// (speech overlapping generation). Both engines now stream; if contention is real it shows up
+    /// as `tokens_per_second` dropping, which is instrumented.
     private var usingAppleTTS: Bool {
         !(settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady)
+    }
+
+    /// True when a streamed reply should be spoken sentence-by-sentence — now both engines.
+    private var canStreamSpeech: Bool {
+        usingAppleTTS || KokoroTTSService.shared.isModelReady
     }
 
     /// Feed the streamed reply to Apple TTS sentence-by-sentence. `cumulative` is the full text so
@@ -1597,7 +1615,11 @@ final class VoiceAgentViewModel: ObservableObject {
             // on the Apple-TTS path — and it lands EARLIER than on the Kokoro path, which is
             // exactly the difference `tts_lead_in_s` is meant to expose.
             MetricsCollector.shared.markFirstAudio()
-            ttsService.beginStreaming()
+            if usingAppleTTS {
+                ttsService.beginStreaming()
+            } else {
+                KokoroTTSService.shared.beginStreaming()
+            }
         }
 
         // The portion not yet handed to the speech queue.
@@ -1607,9 +1629,13 @@ final class VoiceAgentViewModel: ObservableObject {
 
         if isFinal {
             let tail = pending.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !tail.isEmpty { ttsService.speakChunk(tail) }
+            if !tail.isEmpty { speakStreamedChunk(tail) }
             ttsStreamSpokenChars = cumulative.count
-            ttsService.endStreaming()
+            if usingAppleTTS {
+                ttsService.endStreaming()
+            } else {
+                KokoroTTSService.shared.endStreaming()
+            }
             ttsStreaming = false
             recordAssistantReply(cumulative)   // history: streamed reply is complete
             return
@@ -1620,8 +1646,22 @@ final class VoiceAgentViewModel: ObservableObject {
         let pendingStr = String(pending)
         let sentence = String(pendingStr[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard sentence.count >= 2 else { return }   // don't voice a stray "." or "?"
-        ttsService.speakChunk(sentence)
+        speakStreamedChunk(sentence)
         ttsStreamSpokenChars += pendingStr.distance(from: pendingStr.startIndex, to: boundary)
+    }
+
+    /// Speak one completed sentence on whichever engine is active.
+    ///
+    /// Apple TTS enqueues synchronously; Kokoro has to synthesise first, so it runs in a Task.
+    /// Ordering is preserved because Kokoro's own queue appends in call order and each chunk is
+    /// scheduled on the player as it completes.
+    private func speakStreamedChunk(_ sentence: String) {
+        if usingAppleTTS {
+            ttsService.speakChunk(sentence)
+        } else {
+            let voice = settingsManager.settings.kokoroVoice
+            Task { await KokoroTTSService.shared.speakChunk(sentence, voice: voice) }
+        }
     }
 
     /// Speak AI response via TTS

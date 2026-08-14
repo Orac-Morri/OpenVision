@@ -101,7 +101,8 @@ final class InfluxMetricsSink: MetricsSink, @unchecked Sendable {
             tags: [
                 "device": config.deviceName,
                 "backend": turn.backend ?? "unknown",
-                "model": turn.model ?? "unknown"
+                "model": turn.model ?? "unknown",
+                "tts": turn.ttsEngine ?? "unknown"
             ],
             fields: fields,
             timestamp: turn.spokeDoneAt ?? turn.firstAudioAt ?? turn.startedAt
