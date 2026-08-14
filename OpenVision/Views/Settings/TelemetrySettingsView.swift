@@ -160,23 +160,10 @@ struct TelemetrySettingsView: View {
 
     // MARK: - Helpers
 
+    /// Shared with the launch restore path so the two can't drift — see
+    /// `MetricsCollector.applySavedConfiguration()`.
     private func applyTelemetryConfiguration() {
-        let settings = settingsManager.settings
-        guard settings.telemetryEnabled, !settings.telemetryURL.isEmpty else {
-            metrics.configureRemote(nil)
-            return
-        }
-        let config = InfluxMetricsSink.Config(
-            url: settings.telemetryURL,
-            bucket: settings.telemetryBucket,
-            org: settings.telemetryOrg,
-            token: settings.telemetryToken,
-            username: settings.telemetryUsername,
-            password: settings.telemetryPassword,
-            deviceName: settings.telemetryDeviceName
-        )
-        metrics.configureRemote(InfluxMetricsSink(config: config))
-        metrics.startSampling()
+        metrics.applySavedConfiguration()
     }
 
     private func metricRow(_ label: String, _ value: String, tint: Color? = nil) -> some View {
