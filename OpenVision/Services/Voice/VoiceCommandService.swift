@@ -712,16 +712,9 @@ final class VoiceCommandService: ObservableObject {
     // MARK: - Timers
 
     /// Reset silence timer
-    /// Arm the end-of-turn timer, sized to what the user has said so far.
-    ///
-    /// A finished-sounding utterance commits in ~0.8s instead of the old flat 4.0s — that delay was
-    /// the single largest cost in the voice loop, paid on every turn before the model even started.
-    /// An utterance that dangles mid-thought ("what is the…") keeps a long window so a thinking
-    /// pause doesn't cut the user off. See `TurnEndpointing`.
     private func resetSilenceTimer() {
         silenceTimer?.invalidate()
-        let timeout = TurnEndpointing.silenceTimeout(for: currentTranscription)
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: Constants.Voice.silenceTimeout, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.handleSilenceTimeout()
             }

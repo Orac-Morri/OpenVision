@@ -86,9 +86,8 @@ enum Constants {
         /// Command capture timeout (seconds)
         static let commandTimeout: TimeInterval = 10.0
 
-        // NOTE: the old flat `silenceTimeout = 4.0` is gone. End-of-turn is now decided by
-        // `TurnEndpointing`, which picks a short window for utterances that read finished and a
-        // long one for those that dangle mid-thought — a fixed value cannot tell those apart.
+        /// Silence timeout to end command capture (seconds)
+        static let silenceTimeout: TimeInterval = 4.0
 
         /// Default conversation timeout (seconds)
         static let conversationTimeout: TimeInterval = 30.0
