@@ -101,7 +101,13 @@ final class MetricsCollector: ObservableObject {
     func markFirstToken() { setIfUnset(\.firstTokenAt) }
 
     /// Generation finished. `tokenCount` powers tok/s when the backend can report it.
+    ///
+    /// Backfills `firstTokenAt` because generation cannot finish without having started, and the
+    /// two marks arrive in either order depending on the backend: streaming paths report a first
+    /// token early, non-streaming ones never report it at all and would otherwise leave the whole
+    /// post-commit breakdown missing (or, if marked later, negative).
     func markGenerationDone(tokenCount: Int? = nil) {
+        setIfUnset(\.firstTokenAt)
         setIfUnset(\.generationDoneAt)
         if let tokenCount { currentTurn?.tokenCount = tokenCount }
     }
@@ -110,7 +116,13 @@ final class MetricsCollector: ObservableObject {
     func markFirstAudio() { setIfUnset(\.firstAudioAt) }
 
     /// Playback finished; the turn is done and gets published.
+    ///
+    /// Guarded on `firstAudioAt` because "TTS stopped" is not the same event as "this turn's reply
+    /// finished". The previous reply's playback ending — or being cut short by barge-in, a wake
+    /// word, or session teardown — arrives AFTER the next turn has already begun, and without this
+    /// guard it closed that turn seconds early, publishing a timeline that had only reached commit.
     func markSpokeDone() {
+        guard currentTurn?.firstAudioAt != nil else { return }
         setIfUnset(\.spokeDoneAt)
         finishTurn()
     }

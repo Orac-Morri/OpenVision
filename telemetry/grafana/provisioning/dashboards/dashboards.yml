@@ -1,0 +1,16 @@
+# Loads dashboard JSON from this same directory, so the dashboard lives in git rather than only
+# inside the Grafana container's database. Edits in the UI are allowed but will be overwritten on
+# restart — change the JSON to make something stick.
+
+apiVersion: 1
+
+providers:
+  - name: OpenVision
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

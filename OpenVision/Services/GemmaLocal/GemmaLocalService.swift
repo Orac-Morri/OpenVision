@@ -961,9 +961,11 @@ final class GemmaLocalService: ObservableObject {
             return try MLXLMCommon.generate(input: lmInput, parameters: params, context: context)
         }
         var full = ""
+        var chunkCount = 0
         for await item in stream {
             if case .chunk(let piece) = item {
                 full += piece
+                chunkCount += 1
                 if let onPartial {
                     let snapshot = full
                     await MainActor.run { onPartial(snapshot) }
@@ -971,6 +973,14 @@ final class GemmaLocalService: ObservableObject {
             }
         }
         Memory.clearCache()
+
+        // Telemetry: this is the generation path LocalAgent's routing actually uses (sendMessage
+        // is a different entry point), so tok/s has to be reported from here too — otherwise the
+        // rate is missing for every routed command, which is most of them.
+        let generatedChunks = chunkCount
+        await MainActor.run {
+            MetricsCollector.shared.markGenerationDone(tokenCount: generatedChunks)
+        }
         return full
     }
 

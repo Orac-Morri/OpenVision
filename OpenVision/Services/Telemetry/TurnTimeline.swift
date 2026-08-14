@@ -57,9 +57,17 @@ struct TurnTimeline: Identifiable, Sendable {
     /// Pure generation time after the first token.
     var generationDuration: TimeInterval? { Self.delta(firstTokenAt, generationDoneAt) }
 
-    /// Synthesis lead-in: reply text ready -> first audible sound. Large here means TTS is
-    /// serialised behind generation instead of streaming alongside it.
-    var ttsLeadIn: TimeInterval? { Self.delta(generationDoneAt, firstAudioAt) }
+    /// Synthesis lead-in: reply text ready -> first audible sound. **Signed on purpose.**
+    ///
+    /// Positive means TTS is serialised behind generation — nothing is spoken until the whole
+    /// reply exists (the Kokoro path). NEGATIVE means speech started while the model was still
+    /// generating (the streaming Apple-TTS path), which is the good case and the entire point of
+    /// pipelining. Clamping negatives to nil, as the other stages do, silently deleted this
+    /// metric on exactly the turns it was meant to characterise.
+    var ttsLeadIn: TimeInterval? {
+        guard let generationDoneAt, let firstAudioAt else { return nil }
+        return firstAudioAt.timeIntervalSince(generationDoneAt)
+    }
 
     /// THE headline: how long the wearer waits in silence after they stop speaking.
     var perceivedLatency: TimeInterval? { Self.delta(speechEndAt, firstAudioAt) }

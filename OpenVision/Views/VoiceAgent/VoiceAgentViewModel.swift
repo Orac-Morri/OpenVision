@@ -1301,13 +1301,22 @@ final class VoiceAgentViewModel: ObservableObject {
             ttsStreamSpokenChars = 0
             result = await llm.routeCommandStreaming(command) { [weak self] cumulative in
                 guard let self else { return }
+                // Telemetry: the model has started producing. Marked before the JSON-route guard
+                // below so a structured route still records its think time.
+                MetricsCollector.shared.markFirstToken()
                 let lead = cumulative.trimmingCharacters(in: .whitespacesAndNewlines).first
                 guard let lead, lead != "{" else { return }   // JSON route → don't speak
                 self.feedStreamingSpeech(cumulative, isFinal: false)
             }
         } else {
+            // Non-streaming: no visibility into decode, so first-token is backfilled by
+            // markGenerationDone and `ttft` legitimately covers the whole generation.
             result = await llm.routeCommand(command)
         }
+        // The local route is not delivered through AIBackend.onAgentMessage (it returns a
+        // RouteResult instead), so generation-done has to be marked here or the whole stage
+        // breakdown after commit goes missing.
+        MetricsCollector.shared.markGenerationDone()
 
         switch result {
         case .face(let intent):
@@ -1572,6 +1581,10 @@ final class VoiceAgentViewModel: ObservableObject {
             guard !cumulative.isEmpty else { return }
             ttsStreaming = true
             ttsStreamSpokenChars = 0
+            // Streamed replies never reach speakResponse, so this is where perceived latency ends
+            // on the Apple-TTS path — and it lands EARLIER than on the Kokoro path, which is
+            // exactly the difference `tts_lead_in_s` is meant to expose.
+            MetricsCollector.shared.markFirstAudio()
             ttsService.beginStreaming()
         }
 
