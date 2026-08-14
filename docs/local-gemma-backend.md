@@ -1,5 +1,56 @@
 # Local Gemma Backend (On-Device, MLX)
 
+> ## Update (2026-08): Bonsai 8B — 1-bit Qwen3-8B on-device
+>
+> `prism-ml/Bonsai-8B-mlx-1bit` is PrismML's **1-bit (g128, ~1.25 bpw)** quantization of Qwen3-8B:
+> **1.28 GB** of weights vs E2B's 3.6 GB, an 8B-parameter model in a third of the footprint.
+> Validated on Rahul's iPhone 17 Pro (2026-08-14): coherent output, end-to-end
+> speech→model→TTS latency comparable to the existing local models.
+>
+> 1. **No loader changes.** Its `config.json` declares `model_type: "qwen3"`, which
+>    `LLMModelFactory` already registers, and it is text-only (`isVLM == false`) — so it needs
+>    none of the E2B VLM-factory machinery below. Vision stays on SmolVLM2 / FastVLM.
+> 2. **It needs forked Metal kernels.** 1-bit quantization is not in upstream mlx-swift
+>    (PR pending), so `project.yml` points `mlx-swift` at **`PrismML-Eng/mlx-swift`**. The fork
+>    dispatches 1-bit automatically through `QuantizedLinear` when `config.json` says
+>    `"bits": 1`; on stock mlx-swift the model loads and then miscomputes.
+> 3. **Pin `v0.31.6_prism`, NOT the `prism` branch** that the fork's own README recommends.
+>    `prism` is 10 commits behind and misses *"gate NAX to gen-18+ (M5/gen-17 miscompute)"* —
+>    a silent-wrong-math fix for current Apple GPUs, including the A19 Pro.
+> 4. **Declare `mlx-swift` at the ROOT of `project.yml`.** SwiftPM identity resolution then
+>    redirects every consumer (mlx-swift-lm + the three vendored packages, all of which ask for
+>    `ml-explore/mlx-swift`) to the fork with no edits to their `Package.swift` files. SwiftPM
+>    warns `Conflicting identity for mlx-swift` — non-fatal today, but it will become an error in
+>    a future SwiftPM; removing it would mean vendoring `mlx-swift-lm` too.
+> 5. **Build requirements this introduced** (both now mandatory, see
+>    [Building](#building-with-the-1-bit-fork)): the **Metal Toolchain** component and
+>    `-skipPackagePluginValidation`.
+>
+> Vendored **Kokoro TTS** builds and runs unchanged against the fork — that was the main risk,
+> since it shares `mlx-swift` with `mlx-swift-lm`.
+>
+> ### Building with the 1-bit fork
+>
+> The fork compiles its own Metal shaders, which stock Xcode 26.6 cannot do out of the box:
+>
+> ```bash
+> # One-time: Xcode 26.6 ships WITHOUT the Metal compiler (~688 MB download).
+> # Without it the build fails: "cannot execute tool 'metal' due to missing Metal Toolchain".
+> xcodebuild -downloadComponent MetalToolchain
+>
+> xcodebuild -scheme OpenVision -project OpenVision.xcodeproj -configuration Debug \
+>   -destination 'id=<device-udid>' -derivedDataPath build/DerivedData \
+>   -allowProvisioningUpdates -skipMacroValidation -skipPackagePluginValidation build
+> ```
+>
+> `-skipPackagePluginValidation` is required alongside the long-standing `-skipMacroValidation`
+> (the MLX package build plugin needs trusting too; Xcode's GUI does both with a click).
+> The device must be **unlocked** for the developer disk image to mount, and Xcode must be new
+> enough for the device's iOS build, or `xcodebuild` fails at destination resolution — before
+> compiling anything — with *"The developer disk image could not be mounted on this device."*
+>
+> **Rollback:** revert the `mlx-swift` block in `project.yml`, `xcodegen generate`, rebuild.
+
 > ## Update (2026-07): Gemma 4 E2B loading — shipped & resolved
 >
 > Gemma 4 E2B (`mlx-community/gemma-4-E2B-it-4bit`) now loads and runs on-device, including native

@@ -27,11 +27,12 @@ import Tokenizers       // … and Tokenizers.AutoTokenizer
 
 /// The on-device MLX models we expose in the model manager. A mix of lighter text LLMs and the
 /// heavier vision-capable Gemma 4 — so you can trade memory/speed for capability.
-/// Repo ids match validated `mlx-community` snapshots.
+/// Repo ids match validated `mlx-community` snapshots, except `bonsai8B` (PrismML — see below).
 enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
     case qwen05B         // Qwen 2.5 0.5B — tiny/fastest
     case gemma2_2B       // Gemma 2 2B — balanced text
     case qwen3B          // Qwen 2.5 3B — strong text, still light
+    case bonsai8B        // Bonsai 8B — Qwen3-8B at 1-bit, best text-per-byte
     case e2b             // Gemma 4 E2B — vision-capable, heaviest
     case smolVLM2_2B     // SmolVLM2 2.2B — lighter vision model
     case fastVLM05B      // Apple FastVLM 0.5B — fastest vision, real-time
@@ -46,6 +47,7 @@ enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
         case .qwen05B: return "Qwen 2.5 0.5B"
         case .gemma2_2B: return "Gemma 2 2B"
         case .qwen3B: return "Qwen 2.5 3B"
+        case .bonsai8B: return "Bonsai 8B (1-bit)"
         case .e2b: return "Gemma 4 E2B"
         case .smolVLM2_2B: return "SmolVLM2 2.2B"
         case .fastVLM05B: return "FastVLM 0.5B"
@@ -58,6 +60,11 @@ enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
         case .qwen05B: return "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
         case .gemma2_2B: return "mlx-community/gemma-2-2b-it-4bit"
         case .qwen3B: return "mlx-community/Qwen2.5-3B-Instruct-4bit"
+        // PrismML's 1-bit (g128, ~1.25 bpw) quantization of Qwen3-8B. config.json declares
+        // model_type "qwen3", which LLMModelFactory already registers, so it needs no loader
+        // changes — but the 1-bit Metal kernels only exist in the PrismML mlx-swift fork that
+        // project.yml pins. On stock mlx-swift this model loads and then miscomputes/fails.
+        case .bonsai8B: return "prism-ml/Bonsai-8B-mlx-1bit"
         case .e2b: return "mlx-community/gemma-4-E2B-it-4bit"
         case .smolVLM2_2B: return "mlx-community/SmolVLM2-2.2B-Instruct-mlx"
         // FastVLM: Apple's real-time VLM (FastViTHD encoder). 0.5B is the factory's reference
@@ -72,6 +79,7 @@ enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
         case .qwen05B: return "0.5B • ~0.4 GB • tiny + fastest — weak at conversation memory"
         case .gemma2_2B: return "2B • ~1.5 GB • balanced text, good conversation memory"
         case .qwen3B: return "3B • ~1.9 GB • strongest text + best conversation memory"
+        case .bonsai8B: return "8B • ~1.3 GB • 1-bit Qwen3-8B — strongest text, smallest footprint"
         case .e2b: return "2B • ~3.6 GB • vision-capable, heaviest"
         case .smolVLM2_2B: return "2.2B • ~2.6 GB • best all-round: vision + solid memory"
         case .fastVLM05B: return "0.5B • ~1.0 GB • fastest live vision — weak at conversation memory"
@@ -85,6 +93,8 @@ enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
         case .qwen05B: return 400_000_000
         case .gemma2_2B: return 1_500_000_000
         case .qwen3B: return 1_900_000_000
+        // 1,280,131,424 B of weights + ~16 MB tokenizer/vocab/merges.
+        case .bonsai8B: return 1_300_000_000
         case .e2b: return 3_600_000_000
         case .smolVLM2_2B: return 2_600_000_000
         case .fastVLM05B: return 1_000_000_000
@@ -98,7 +108,7 @@ enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
     var isVLM: Bool {
         switch self {
         case .e2b, .smolVLM2_2B, .fastVLM05B: return true
-        case .qwen05B, .gemma2_2B, .qwen3B: return false
+        case .qwen05B, .gemma2_2B, .qwen3B, .bonsai8B: return false
         }
     }
 
