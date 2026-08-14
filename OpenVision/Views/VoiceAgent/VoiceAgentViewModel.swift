@@ -156,6 +156,11 @@ final class VoiceAgentViewModel: ObservableObject {
             agentState = .speaking
             voiceCommandService.isBargeInPaused = true
         } else {
+            // Kokoro has its OWN speaking-state callback, so instrumenting only
+            // ttsSpeakingChanged left every Kokoro turn unpublished — device metrics kept
+            // flowing while turn metrics silently vanished whenever Kokoro was selected.
+            MetricsCollector.shared.markSpokeDone()
+
             voiceCommandService.isBargeInPaused = false
             if isSessionActive {
                 agentState = .listening
@@ -552,9 +557,16 @@ final class VoiceAgentViewModel: ObservableObject {
 
             // Telemetry: the turn is now the backend's problem — everything after this is
             // think time, and everything before it was endpointing.
+            //
+            // The model must be the one ACTUALLY LOADED, not `settings.localGemmaModelId`:
+            // that setting is the *selected local model* and doesn't change when the active
+            // backend is Apple Intelligence or a cloud service, so turns served by something
+            // else were mislabelled as the local model — which made model comparisons in
+            // Grafana quietly meaningless.
+            let backend = self.settingsManager.settings.aiBackend
             MetricsCollector.shared.markCommit(
-                backend: self.settingsManager.settings.aiBackend.rawValue,
-                model: self.settingsManager.settings.localGemmaModelId
+                backend: backend.rawValue,
+                model: backend == .localGemma ? GemmaLocalService.shared.activeModelId : nil
             )
 
             // History: every captured command is a user message (Meta AI records all glasses

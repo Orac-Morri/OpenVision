@@ -231,8 +231,8 @@ final class AppleFoundationService: ObservableObject, LocalTextLLM {
 
     func answerWithSearchResult(question: String, result: String) async -> String {
         // Plain natural-language summary works fine on Apple's model.
-        await LocalAgent.answerWithSearchResult(question: question, result: result) { [weak self] system, _, user in
-            await self?.generate(system: system, user: user)
+        await LocalAgent.answerWithSearchResult(question: question, result: result) { [weak self] prompt, _, user in
+            await self?.generate(system: prompt.combined, user: user)
         }
     }
 

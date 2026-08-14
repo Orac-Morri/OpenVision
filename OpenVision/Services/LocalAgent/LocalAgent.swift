@@ -20,8 +20,28 @@ enum LocalAgent {
         case answer(String)
     }
 
-    /// A backend's generation primitive: (systemPrompt, priorTurns, userText) -> text (nil on failure).
-    typealias Generate = (_ system: String, _ history: [ConversationContext.Turn], _ user: String) async -> String?
+    /// The system prompt, split by whether it changes between turns.
+    ///
+    /// The split exists for KV prefix caching: a backend can prefill `stable` once and reuse that
+    /// cache on every turn, which is the difference between paying ~3s of prompt prefill per turn
+    /// and paying it once. Anything that varies — the clock, focused-document excerpts — must sit
+    /// AFTER the cached region or it invalidates everything downstream of it.
+    ///
+    /// Backends that don't cache simply concatenate the two and behave exactly as before.
+    struct Prompt {
+        /// Identical every turn for a given `PromptDetail`: rules, tool schemas, examples.
+        let stable: String
+        /// Varies per turn: current time, focused-document excerpts. Empty when there is none.
+        let perTurn: String
+
+        /// The whole prompt as one string — for backends with no caching.
+        var combined: String {
+            perTurn.isEmpty ? stable : stable + "\n\n" + perTurn
+        }
+    }
+
+    /// A backend's generation primitive: (prompt, priorTurns, userText) -> text (nil on failure).
+    typealias Generate = (_ prompt: Prompt, _ history: [ConversationContext.Turn], _ user: String) async -> String?
 
     /// How much hand-holding the routing prompt gives the model.
     ///
@@ -49,9 +69,18 @@ enum LocalAgent {
                       detail: PromptDetail = .verbose, generate: Generate) async -> RouteResult {
         let now = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withInternetDateTime])
         // Document-focus mode: while the user works with a document, its relevant excerpts ride
-        // along on every request (appended to the system prompt below).
+        // along on every request — in the PER-TURN section, since they change with the query.
+        //
+        // Timed because it sits inside commit→first-token, the window that dominates latency.
+        // KV prefix caching barely moved that window, which disproved the assumption that it was
+        // mostly prompt prefill — so every other step in here is now a suspect.
+        let docStart = Date()
         let docContext = await DocumentFocus.shared.contextForQuery(command)
-        var system = detail == .concise ? concisePrompt(now: now) : """
+        let docElapsed = Date().timeIntervalSince(docStart)
+        if docElapsed > 0.05 {
+            NSLog("[OV] ttft breakdown: docContext %.3fs", docElapsed)
+        }
+        let stable = detail == .concise ? concisePrompt() : """
         You are a voice assistant for smart glasses that can recognize faces the user has taught you.
 
         Face actions apply ONLY to a real person PHYSICALLY IN FRONT of the user right now (seen through the glasses camera). If the user names a person, or asks about a public/famous/historical figure, or asks a general "who is…" question, that is NOT a face action — answer it or search instead.
@@ -108,7 +137,7 @@ enum LocalAgent {
         - Close the open document: {"tool":"search_docs","action":"unfocus"}
         TIME RULES (the tool does the date math — never compute a date or minute count yourself):
         - A specific time of day like "6pm", "9:30am", "at 6" → give "hour" in 24-hour form (6pm=18, 9am=9) and "minute" if any; add "day_offset":1 for tomorrow.
-        - Only "in N minutes/hours from now" → give "minutes_from_now". The current time is \(now).
+        - Only "in N minutes/hours from now" → give "minutes_from_now".
         Action examples:
         User: set a 5 minute timer → {"tool":"set_timer","seconds":300}
         User: remind me to go to the gym at 6pm → {"tool":"create_reminder","title":"go to the gym","hour":18}
@@ -126,10 +155,14 @@ enum LocalAgent {
 
         You DO have conversation memory: the earlier messages in this chat are your record of the conversation so far. Use them for follow-ups — e.g. for "what were we talking about?" summarize those earlier messages; for "what about X?" resolve it against the previous topic. Never claim you can't remember when earlier messages exist.
         """
-        if let docContext { system += "\n\n" + docContext }
-        // NOTE: docContext is appended LAST on purpose — it varies per query, so everything above
-        // it stays a stable prefix. That is what makes KV prefix-caching possible later.
-        guard let output = await generate(system, history, command) else {
+        // Everything that changes between turns lives here, AFTER the cacheable region: the clock
+        // (a timestamp mid-prompt would invalidate every token following it) and the focused
+        // document's excerpts, which are selected per query.
+        var perTurn = "The current time is \(now)."
+        if let docContext { perTurn += "\n\n" + docContext }
+        let prompt = Prompt(stable: stable, perTurn: perTurn)
+
+        guard let output = await generate(prompt, history, command) else {
             return .answer("Sorry, I couldn't process that — please try again.")
         }
 
@@ -145,9 +178,14 @@ enum LocalAgent {
                                 "who is this", "who am i looking"]
             if !presenceCues.contains(where: { lower.contains($0) }) {
                 NSLog("[OV] route override: identify → document answer (focus active, no presence cue)")
-                let answerSystem = "You are a voice assistant for smart glasses. Answer briefly "
-                    + "(1-3 short sentences) since your reply is spoken aloud.\n\n" + docContext
-                if let answer = await generate(answerSystem, history, command) {
+                // One-off prompt with document excerpts baked in — not worth caching, and the
+                // excerpts change per query anyway, so it all goes in the per-turn half.
+                let answerPrompt = Prompt(
+                    stable: "You are a voice assistant for smart glasses. Answer briefly "
+                        + "(1-3 short sentences) since your reply is spoken aloud.",
+                    perTurn: docContext
+                )
+                if let answer = await generate(answerPrompt, history, command) {
                     return .answer(answer.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
             }
@@ -161,7 +199,7 @@ enum LocalAgent {
     /// The two must be kept in behavioural sync: if a routing rule changes, change it here too.
     /// They are deliberately separate literals rather than one built from parts, because the
     /// verbose text is hard-won (three on-device iterations) and must not shift by accident.
-    private static func concisePrompt(now: String) -> String {
+    private static func concisePrompt() -> String {
         """
         You are a voice assistant for smart glasses that can recognize faces the user has taught you.
 
@@ -190,7 +228,7 @@ enum LocalAgent {
 
         TIME RULES (the tool does the date math — never compute a date or minute count yourself):
         - A time of day ("6pm", "9:30am", "at 6") → "hour" in 24-hour form (6pm=18) plus "minute" if any; add "day_offset":1 for tomorrow.
-        - Only "in N minutes/hours from now" → "minutes_from_now". The current time is \(now).
+        - Only "in N minutes/hours from now" → "minutes_from_now".
 
         OTHERWISE answer directly, in 1-3 short sentences, only when genuinely confident it's stable well-known info (math, definitions, general facts). Do NOT mention faces, tools, or JSON.
 
@@ -242,7 +280,7 @@ enum LocalAgent {
         """
         let context = result.isEmpty ? "(no web result found)" : result
         let user = "Question: \(question)\n\nWeb search result: \(context)"
-        if let out = await generate(system, [], user),
+        if let out = await generate(Prompt(stable: system, perTurn: ""), [], user),
            !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return out.trimmingCharacters(in: .whitespacesAndNewlines)
         }

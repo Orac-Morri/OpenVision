@@ -181,6 +181,10 @@ final class GemmaLocalService: ObservableObject {
     private var modelContainer: ModelContainer?
     private var loadedModelId: String?
 
+    /// The model currently loaded in memory, or nil when none is. Distinct from the *selected*
+    /// model in settings — telemetry must report what actually served a turn, not what is picked.
+    var activeModelId: String? { loadedModelId }
+
     /// True when the loaded model can take photos on-device (currently SmolVLM2 only).
     /// Unknown model ids resolve to .e2b in from(modelId:), which is vision-disabled — safe.
     var visionReady: Bool {
@@ -454,6 +458,7 @@ final class GemmaLocalService: ObservableObject {
             print("[GemmaLocal] releasing previous model (\(loadedModelId ?? "?")) before load")
             modelContainer = nil
             loadedModelId = nil
+            invalidateRoutingCache()   // KV cache belongs to the unloaded model
             isModelLoaded = false
         }
 
@@ -493,6 +498,7 @@ final class GemmaLocalService: ObservableObject {
     func disconnect() async {
         modelContainer = nil
         loadedModelId = nil
+        invalidateRoutingCache()   // KV cache belongs to the unloaded model
         isModelLoaded = false
         isProcessing = false
         setState(.disconnected)
@@ -695,6 +701,7 @@ final class GemmaLocalService: ObservableObject {
         if loadedModelId == modelId || loadedModelId == nil {
             modelContainer = nil
             loadedModelId = nil
+            invalidateRoutingCache()   // KV cache belongs to the unloaded model
             isModelLoaded = false
             Memory.clearCache()
             setState(.disconnected)
@@ -909,20 +916,109 @@ final class GemmaLocalService: ObservableObject {
 
     typealias RouteResult = LocalAgent.RouteResult
 
+    // MARK: - KV prefix cache
+
+    /// A `ChatSession` kept alive across turns so the routing prompt is prefilled ONCE.
+    ///
+    /// Telemetry showed prompt prefill dominating on-device latency — ~3s of a ~3.4s wait even
+    /// after halving the prompt — because the whole system prompt was re-processed every turn.
+    /// `ChatSession` retains its KV cache between `respond` calls, so the stable prefix is paid
+    /// for once and conversation history accumulates incrementally instead of being re-prefilled.
+    private var routingSession: ChatSession?
+    /// What `routingSession` was built for. Any change (model switch, verbose↔concise, a prompt
+    /// edit) must invalidate it — reusing a cache built from different tokens produces coherent-
+    /// looking but wrong output, which is far harder to notice than a crash.
+    private var routingSessionKey: String?
+
+    /// Drop the cached session. Call when the model unloads or the conversation resets.
+    func invalidateRoutingCache() {
+        routingSession = nil
+        routingSessionKey = nil
+    }
+
+    /// Generate with the KV prefix cache, creating or reusing a session as needed.
+    ///
+    /// - Parameters:
+    ///   - prompt: split prompt; only `stable` is cached, `perTurn` rides with the user message.
+    ///   - history: seeds a NEWLY created session so follow-ups still work after a model switch
+    ///     or app restart. Ignored once the session exists — by then its cache holds the history.
+    ///   - user: this turn's text.
+    ///   - onPartial: cumulative output callback for streamed speech.
+    private func cachedGenerate(prompt: LocalAgent.Prompt,
+                                history: [ConversationContext.Turn],
+                                user: String,
+                                onPartial: ((String) -> Void)? = nil) async throws -> String {
+        let entryAt = Date()
+        guard let container = modelContainer else { throw GemmaLocalError.modelNotLoaded }
+        guard UIApplication.shared.applicationState != .background else { throw GemmaLocalError.backgrounded }
+
+        let key = (loadedModelId ?? "") + "\u{1}" + prompt.stable
+        var seededHistory = false
+        if routingSessionKey != key || routingSession == nil {
+            routingSession = ChatSession(
+                container,
+                instructions: prompt.stable,
+                generateParameters: GenerateParameters(maxTokens: 200, temperature: 0.3)
+            )
+            routingSessionKey = key
+            seededHistory = true
+            NSLog("[OV] GemmaLocal: new routing session (prefix will be prefilled once)")
+        }
+        guard let session = routingSession else { throw GemmaLocalError.modelNotLoaded }
+
+        // Fresh session: fold prior turns into the first message so "what were we talking about?"
+        // still resolves. Afterwards the session's own cache is the record.
+        var message = ""
+        if seededHistory, !history.isEmpty {
+            let transcript = history
+                .map { "\($0.role == "assistant" ? "Assistant" : "User"): \($0.content)" }
+                .joined(separator: "\n")
+            message += "Earlier in this conversation:\n\(transcript)\n\n"
+        }
+        if !prompt.perTurn.isEmpty { message += prompt.perTurn + "\n\n" }
+        message += user
+
+        // Sub-stage timing inside commit→first-token. KV caching removed the repeated prompt
+        // prefill but barely moved ttft, so the cost is elsewhere in here — measure, don't guess.
+        let genStart = Date()
+        NSLog("[OV] ttft breakdown: setup before generate %.3fs", genStart.timeIntervalSince(entryAt))
+        var firstChunkAt: Date?
+
+        var full = ""
+        var chunkCount = 0
+        for try await chunk in session.streamResponse(to: message) {
+            if firstChunkAt == nil {
+                firstChunkAt = Date()
+                NSLog("[OV] ttft breakdown: session→first chunk %.3fs (session %@, history seeded %@, message %d chars)",
+                      Date().timeIntervalSince(genStart),
+                      seededHistory ? "NEW" : "reused",
+                      seededHistory ? "yes" : "no",
+                      message.count)
+            }
+            full += chunk
+            chunkCount += 1
+            if let onPartial {
+                let snapshot = full
+                await MainActor.run { onPartial(snapshot) }
+            }
+        }
+
+        let generatedChunks = chunkCount
+        await MainActor.run {
+            MetricsCollector.shared.markGenerationDone(tokenCount: generatedChunks)
+        }
+        return full
+    }
+
     /// ONE generation that either routes a face command, requests a web search, or answers. Delegates
     /// the prompt/parsing to LocalAgent (shared with the Apple Foundation backend).
     func routeCommand(_ command: String) async -> RouteResult {
         let history = ConversationContext.shared.turns
         let detail: LocalAgent.PromptDetail =
             GemmaLocalModel.from(modelId: loadedModelId ?? "").prefersConcisePrompt ? .concise : .verbose
-        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] system, hist, user in
+        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] prompt, hist, user in
             guard let self else { return nil }
-            var messages: [Chat.Message] = [.init(role: .system, content: system)]
-            for turn in hist {
-                messages.append(.init(role: turn.role == "assistant" ? .assistant : .user, content: turn.content))
-            }
-            messages.append(.init(role: .user, content: user))
-            return try? await self.rawGenerate(messages: messages, maxTokens: 200, temperature: 0.3)
+            return try? await self.cachedGenerate(prompt: prompt, history: hist, user: user)
         }
     }
 
@@ -933,14 +1029,10 @@ final class GemmaLocalService: ObservableObject {
         let history = ConversationContext.shared.turns
         let detail: LocalAgent.PromptDetail =
             GemmaLocalModel.from(modelId: loadedModelId ?? "").prefersConcisePrompt ? .concise : .verbose
-        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] system, hist, user in
+        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] prompt, hist, user in
             guard let self else { return nil }
-            var messages: [Chat.Message] = [.init(role: .system, content: system)]
-            for turn in hist {
-                messages.append(.init(role: turn.role == "assistant" ? .assistant : .user, content: turn.content))
-            }
-            messages.append(.init(role: .user, content: user))
-            return try? await self.rawGenerate(messages: messages, maxTokens: 200, temperature: 0.3, onPartial: onPartial)
+            return try? await self.cachedGenerate(prompt: prompt, history: hist, user: user,
+                                                  onPartial: onPartial)
         }
     }
 
@@ -954,10 +1046,10 @@ final class GemmaLocalService: ObservableObject {
 
     /// Phrase a concise spoken answer to `question` using a web-search `result`.
     func answerWithSearchResult(question: String, result: String) async -> String {
-        await LocalAgent.answerWithSearchResult(question: question, result: result) { [weak self] system, _, user in
+        await LocalAgent.answerWithSearchResult(question: question, result: result) { [weak self] prompt, _, user in
             guard let self else { return nil }
             return try? await self.rawGenerate(messages: [
-                .init(role: .system, content: system),
+                .init(role: .system, content: prompt.combined),
                 .init(role: .user, content: user)
             ], maxTokens: 200, temperature: 0.4)
         }

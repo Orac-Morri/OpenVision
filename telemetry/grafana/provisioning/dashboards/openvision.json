@@ -1,83 +1,210 @@
 {
   "uid": "openvision-main",
   "title": "OpenVision",
-  "tags": ["openvision"],
+  "tags": [
+    "openvision"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "label": "Model",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "openvision-influx"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"metrics\", tag: \"model\")",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ],
+          "selected": false
+        }
+      }
+    ]
+  },
   "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Voice turn latency",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Perceived latency",
-      "description": "Silence between the user finishing speaking and the reply starting. The number that decides whether the assistant feels fast.",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "title": "Perceived latency by model",
+      "description": "Silence from the user finishing speaking to the reply starting. The number that decides whether it feels fast.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "decimals": 2,
-          "min": 0,
-          "custom": { "drawStyle": "points", "pointSize": 8, "lineWidth": 1, "showPoints": "always" },
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 7,
+            "showPoints": "always",
+            "lineWidth": 0
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "#EAB839", "value": 2 },
-              { "color": "red", "value": 4 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 2
+              },
+              {
+                "color": "orange",
+                "value": 3.5
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
-          }
+          },
+          "min": 0
         },
         "overrides": []
-      },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "none" }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\"])\n  |> rename(columns: {_value: \"perceived\"})"
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\"])\n  |> group(columns: [\"model\"])"
         }
-      ]
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "id": 2,
       "type": "timeseries",
       "title": "Where the time goes",
-      "description": "commit = endpointing · ttft = backend think time · generation = decode · tts = synthesis lead-in. Whichever dominates is the thing worth optimising.",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "description": "Stacked per turn. commit = endpointing | ttft = think time before first token | generation = decode | tts = synthesis lead-in (negative means speech overlapped generation, which is good).",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "decimals": 2,
-          "min": 0,
-          "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "stacking": { "mode": "normal" } }
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
         },
         "overrides": []
-      },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"commit_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\" or r._field == \"tts_lead_in_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])"
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"commit_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\" or r._field == \"tts_lead_in_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
         }
-      ]
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "At a glance",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "collapsed": false,
+      "panels": []
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Latest perceived latency",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 9 },
+      "title": "Median perceived latency",
+      "description": "p50 over the selected window \u2014 more honest than the last value, which bounces.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 11
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
@@ -85,35 +212,131 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "#EAB839", "value": 2 },
-              { "color": "red", "value": 4 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 2
+              },
+              {
+                "color": "orange",
+                "value": 3.5
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           }
         },
         "overrides": []
       },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
-      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> median()"
         }
-      ]
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
     },
     {
       "id": 4,
       "type": "stat",
+      "title": "p95 perceived latency",
+      "description": "The bad turns. A large gap between this and the median means inconsistency, which is felt more than a slightly higher average.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 2
+              },
+              {
+                "color": "orange",
+                "value": 3.5
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.95)"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
       "title": "Tokens / sec",
-      "description": "On-device decode rate. Only reported by the local MLX backend.",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 9 },
+      "description": "On-device decode rate; only the local MLX backend reports it.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 11
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -121,84 +344,151 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "#EAB839", "value": 10 },
-              { "color": "green", "value": 20 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 10
+              },
+              {
+                "color": "green",
+                "value": 20
+              }
             ]
           }
         },
         "overrides": []
       },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
-      ]
+      }
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "gauge",
       "title": "Thermal state",
-      "description": "iOS gives four buckets, not degrees: 0 nominal · 1 fair · 2 serious · 3 critical.",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 9 },
+      "description": "iOS exposes four buckets, not degrees. Sustained on-device inference pushes this up, and throttling shows up as slower turns.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 11
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "decimals": 0,
-          "min": 0,
-          "max": 3,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "#EAB839", "value": 1 },
-              { "color": "orange", "value": 2 },
-              { "color": "red", "value": 3 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
             ]
           },
           "mappings": [
             {
               "type": "value",
               "options": {
-                "0": { "text": "nominal", "index": 0 },
-                "1": { "text": "fair", "index": 1 },
-                "2": { "text": "serious", "index": 2 },
-                "3": { "text": "critical", "index": 3 }
+                "0": {
+                  "text": "nominal",
+                  "index": 0
+                },
+                "1": {
+                  "text": "fair",
+                  "index": 1
+                },
+                "2": {
+                  "text": "serious",
+                  "index": 2
+                },
+                "3": {
+                  "text": "critical",
+                  "index": 3
+                }
               }
             }
-          ]
+          ],
+          "min": 0,
+          "max": 3
         },
         "overrides": []
-      },
-      "options": {
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
           "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"thermal_level\")\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
-      ]
+      ],
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "stat",
       "title": "Jetsam headroom",
-      "description": "Memory left before iOS SIGKILLs the app. A kill leaves no crash log, so this is the early warning.",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 9 },
+      "description": "Memory left before iOS kills the app. A kill leaves no crash log, so this is the early warning.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 11
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "decmbytes",
@@ -206,84 +496,339 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 500 },
-              { "color": "#EAB839", "value": 1000 },
-              { "color": "green", "value": 2000 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 500
+              },
+              {
+                "color": "#EAB839",
+                "value": 1000
+              },
+              {
+                "color": "green",
+                "value": 2000
+              }
             ]
           }
         },
         "overrides": []
       },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"memory_available_mb\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Turns recorded",
+      "description": "Completed turns in the window. If this stays at zero while device metrics flow, turn instrumentation is broken rather than idle.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"memory_available_mb\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> count()"
+        }
+      ],
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Model comparison",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Per-model summary",
+      "description": "Mean of each stage, split by the model that ACTUALLY served the turn. Use this to compare models rather than eyeballing the scatter.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"perceived_latency_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\")\n  |> group(columns: [\"model\", \"_field\"])\n  |> mean()\n  |> keep(columns: [\"model\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"model\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
         }
       ]
     },
     {
-      "id": 7,
+      "id": 10,
+      "type": "timeseries",
+      "title": "Time to first token",
+      "description": "Prompt processing before any output. On-device this scales with prompt AND conversation length, so it climbs as you talk unless history is bounded.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 7,
+            "showPoints": "always",
+            "lineWidth": 0
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 2
+              },
+              {
+                "color": "orange",
+                "value": 3.5
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"ttft_s\")\n  |> keep(columns: [\"_time\", \"_value\", \"model\"])\n  |> group(columns: [\"model\"])"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "Device",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
       "type": "timeseries",
       "title": "Memory",
-      "description": "App footprint against remaining jetsam headroom. Two on-device models loaded at once is what killed the app before.",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "description": "App footprint against remaining headroom. Two on-device models loaded at once is what killed the app before.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "decmbytes",
           "decimals": 0,
-          "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0
         },
         "overrides": []
-      },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "none" }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\")\n  |> filter(fn: (r) => r._field == \"memory_footprint_mb\" or r._field == \"memory_available_mb\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])"
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\")\n  |> filter(fn: (r) => r._field == \"memory_footprint_mb\" or r._field == \"memory_available_mb\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
         }
-      ]
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
-      "id": 8,
+      "id": 12,
       "type": "timeseries",
-      "title": "CPU",
-      "description": "This app's threads summed across cores, so above 100% is normal during inference. iOS exposes no per-core clocks.",
-      "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "title": "CPU and thermal",
+      "description": "CPU is this app's threads summed across cores, so >100% is normal during inference. Thermal is 0-3; watch for turns slowing as it rises.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "openvision-influx"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
           "decimals": 0,
-          "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20, "showPoints": "never" }
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0
         },
         "overrides": []
-      },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
-        "tooltip": { "mode": "single", "sort": "none" }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "openvision-influx" },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"cpu_percent\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"cpu\"})"
+          "datasource": {
+            "type": "influxdb",
+            "uid": "openvision-influx"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\")\n  |> filter(fn: (r) => r._field == \"cpu_percent\" or r._field == \"thermal_level\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
         }
-      ]
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     }
   ]
 }
