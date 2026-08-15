@@ -814,9 +814,9 @@ final class VoiceAgentViewModel: ObservableObject {
         // Matched on WORDS, not substrings: `.contains("stop")` treated "what's on the desktop"
         // as a stop command and killed the session mid-question.
         let commandWords = Set(lowerCommand.split(whereSeparator: { !$0.isLetter }).map(String.init))
-        let stopWords: Set<String> = ["stop", "quiet", "silence", "enough"]
+        let stopSingleWords: Set<String> = ["stop", "quiet", "silence", "enough"]
         let stopPhrases = ["be quiet", "shut up", "ok stop", "okay stop", "stop talking", "stop it"]
-        let isStopCommand = (!commandWords.isDisjoint(with: stopWords)
+        let isStopCommand = (!commandWords.isDisjoint(with: stopSingleWords)
                              || stopPhrases.contains { lowerCommand.contains($0) })
                              && !lowerCommand.contains("video") && !lowerCommand.contains("stream")
 
