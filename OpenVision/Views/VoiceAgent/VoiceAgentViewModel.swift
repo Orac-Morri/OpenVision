@@ -1122,6 +1122,15 @@ final class VoiceAgentViewModel: ObservableObject {
     /// similarity alone: short sentences share few words, so rephrasings of the same scene
     /// scored as "new" and were re-announced. Same scene = one announcement, full stop.
     private var watchLastSpokenThumb: [UInt8]?
+    /// Previous polled thumbnail — the DWELL gate compares against this, not the last described
+    /// scene: describe only once the view has stopped moving.
+    private var watchPrevPollThumb: [UInt8]?
+    /// When the last inference finished — enforces a hard duty-cycle floor.
+    private var watchLastDescribeEnd = Date.distantPast
+    /// Minimum time between inferences. On-device test: walking made every frame a "new scene",
+    /// chaining back-to-back full-GPU inferences — times ramped 3.3s -> 9.6s and the device hit
+    /// thermal SERIOUS in ninety seconds. The loop must idle even when the world keeps changing.
+    private static let watchMinDescribeInterval: TimeInterval = 4.0
     /// True from command capture until the reply has FINISHED PLAYING. The watch loop's
     /// point-in-time "is anything speaking?" checks straddled 1-3s of async inference+synthesis,
     /// so a reply could begin inside that window and get preempted by the finished watch line —
@@ -1157,19 +1166,34 @@ final class VoiceAgentViewModel: ObservableObject {
                     try? await Task.sleep(nanoseconds: 200_000_000)
                     continue
                 }
-                // Scene-change gate: skip inference when the view hasn't meaningfully changed.
-                // The diff is logged on BOTH branches — the threshold is tuned from these
-                // numbers against real glasses jitter, not by feel.
+                // Duty-cycle floor FIRST: on-device, a walk made every frame a new scene and
+                // the chained inferences thermal-throttled the phone to "serious" (3.3s -> 9.6s
+                // per frame). The loop idles between describes no matter what the world does.
+                guard Date().timeIntervalSince(self.watchLastDescribeEnd) >= Self.watchMinDescribeInterval else {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    continue
+                }
                 let thumb = Self.grayThumbnail(frame)
+                let prevPoll = self.watchPrevPollThumb
+                self.watchPrevPollThumb = thumb
+                // DWELL gate: describe only once the view has SETTLED — this poll must match the
+                // previous poll. Mid-pan frames are motion-blurred (the model literally said
+                // "a blurry image"), waste full-GPU inferences on views the wearer is already
+                // leaving, and narrate the journey instead of the destination.
+                if let prevPoll, FrameChange.isNewScene(thumb, prevPoll) {
+                    MetricsCollector.shared.count("watch_skipped")
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
+                // Scene gate: the settled view must differ from the last DESCRIBED scene.
                 if let last = self.watchLastThumb {
                     let diff = FrameChange.difference(thumb, last)
                     if diff <= FrameChange.sceneChangeThreshold {
-                        NSLog("[OV] watch: skip diff=%.3f", diff)
                         MetricsCollector.shared.count("watch_skipped")
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         continue
                     }
-                    NSLog("[OV] watch: NEW SCENE diff=%.3f", diff)
+                    NSLog("[OV] watch: NEW SETTLED SCENE diff=%.3f", diff)
                 }
                 guard let jpeg = frame.jpegData(compressionQuality: 0.6) else {
                     try? await Task.sleep(nanoseconds: 200_000_000)
@@ -1178,11 +1202,20 @@ final class VoiceAgentViewModel: ObservableObject {
                 self.watchLastThumb = thumb
                 let inferStart = Date()
                 do {
-                    let description = try await GemmaLocalService.shared.describeFrame(
+                    let raw = try await GemmaLocalService.shared.describeFrame(
                         jpeg, prompt: "What is in view right now?")
+                    self.watchLastDescribeEnd = Date()
+                    // The token cap truncates mid-sentence ("...and a mouse" / "The plant is") —
+                    // trim to the last COMPLETE sentence; a fragment-only output is dropped.
+                    let description: String
+                    if let boundary = TextChunking.lastSentenceBoundary(in: raw) {
+                        description = String(raw[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else {
+                        description = ""
+                    }
                     let inferSeconds = Date().timeIntervalSince(inferStart)
                     MetricsCollector.shared.count("watch_described")
-                    NSLog("[OV] watch: %.2fs \"%@\"", inferSeconds, description)
+                    NSLog("[OV] watch: %.2fs \"%@\"", inferSeconds, description.isEmpty ? raw + " [fragment, dropped]" : description)
                     // Speak gates, all must pass:
                     //  1. the SCENE moved on since the last spoken line — text similarity alone
                     //     re-announced rephrasings ("this is a plant" / "a potted plant" share
@@ -1207,6 +1240,7 @@ final class VoiceAgentViewModel: ObservableObject {
                     }
                 } catch {
                     // Model switching/backgrounded mid-loop is normal; back off rather than spin.
+                    self.watchLastDescribeEnd = Date()
                     NSLog("[OV] watch: describe failed: %@", "\(error)")
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }
@@ -1220,6 +1254,8 @@ final class VoiceAgentViewModel: ObservableObject {
         watchLastThumb = nil
         watchLastSpoken = nil
         watchLastSpokenThumb = nil
+        watchPrevPollThumb = nil
+        watchLastDescribeEnd = .distantPast
     }
 
     /// Speak a watch-loop line OUTSIDE the turn pipeline: no history, no turn metrics — and via
