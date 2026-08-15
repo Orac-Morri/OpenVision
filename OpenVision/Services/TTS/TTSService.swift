@@ -88,6 +88,16 @@ final class TTSService: NSObject, ObservableObject {
         enqueue(text)
     }
 
+    /// Ambient narration (watch loop): speaks only into silence and never preempts — `speak`
+    /// stops the synthesizer first, which cut replies off mid-sentence when a watch line landed
+    /// during one. Dropped lines are fine; the next scene change describes again.
+    func speakAmbient(_ text: String) {
+        guard !isSpeaking, !streamingActive else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        enqueue(trimmed)
+    }
+
     // MARK: - Streaming (sentence-by-sentence)
 
     /// Begin a streamed reply. Clears the queue and latches `isSpeaking` true so the recognizer
@@ -151,6 +161,12 @@ final class TTSService: NSObject, ObservableObject {
 extension TTSService: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
         Task { @MainActor in
+            // The moment audio actually begins — the honest end of the wearer's wait. Marked here,
+            // not where the view model hands text over: hand-off-time marking excluded synthesis
+            // entirely, which made TTS TTFB structurally zero and perceived latency optimistic.
+            // First-wins per turn, and gated inside the collector on the turn having requested
+            // TTS, so later sentences and unrelated system utterances can't misattribute.
+            MetricsCollector.shared.markFirstAudio()
             if !self.isSpeaking {
                 self.isSpeaking = true
                 self.onSpeechStarted?()

@@ -20,17 +20,67 @@ enum LocalAgent {
         case answer(String)
     }
 
-    /// A backend's generation primitive: (systemPrompt, priorTurns, userText) -> text (nil on failure).
-    typealias Generate = (_ system: String, _ history: [ConversationContext.Turn], _ user: String) async -> String?
+    /// The system prompt, split by whether it changes between turns.
+    ///
+    /// The split exists for KV prefix caching: a backend can prefill `stable` once and reuse that
+    /// cache on every turn, which is the difference between paying ~3s of prompt prefill per turn
+    /// and paying it once. Anything that varies — the clock, focused-document excerpts — must sit
+    /// AFTER the cached region or it invalidates everything downstream of it.
+    ///
+    /// Backends that don't cache simply concatenate the two and behave exactly as before.
+    struct Prompt {
+        /// Identical every turn for a given `PromptDetail`: rules, tool schemas, examples.
+        let stable: String
+        /// Varies per turn: current time, focused-document excerpts. Empty when there is none.
+        let perTurn: String
+
+        /// The whole prompt as one string — for backends with no caching.
+        var combined: String {
+            perTurn.isEmpty ? stable : stable + "\n\n" + perTurn
+        }
+    }
+
+    /// A backend's generation primitive: (prompt, priorTurns, userText) -> text (nil on failure).
+    typealias Generate = (_ prompt: Prompt, _ history: [ConversationContext.Turn], _ user: String) async -> String?
+
+    /// How much hand-holding the routing prompt gives the model.
+    ///
+    /// This is a LATENCY knob, not a style one. The prompt is re-prefilled on every turn, and
+    /// prefill is compute-bound: telemetry put time-to-first-token at ~5s of a ~6.4s wait on
+    /// Bonsai-8B, against ~2s of actual decode at 30 tok/s. The verbose prompt is ~6,850
+    /// characters, most of it worked examples.
+    ///
+    /// Those examples exist because Gemma 4 E2B (2B effective) mis-routed without them — three
+    /// prompt iterations failed to stop it treating "is <name> authorized" as a face action. A
+    /// stronger model doesn't need them, and shouldn't pay seconds per turn for them.
+    enum PromptDetail {
+        /// Full worked examples. Correct default for small models; unchanged from what shipped.
+        case verbose
+        /// Rules and tool schemas only. For models big enough to generalise from them (~7B+).
+        case concise
+    }
 
     /// ONE generation that either routes a face command, requests a web search, or answers directly.
     /// `history` gives the model recent turns so follow-up questions work.
-    static func route(_ command: String, history: [ConversationContext.Turn], generate: Generate) async -> RouteResult {
+    ///
+    /// `detail` defaults to `.verbose` so any caller that hasn't been assessed keeps today's
+    /// behaviour — opting a model in is a deliberate act.
+    static func route(_ command: String, history: [ConversationContext.Turn],
+                      detail: PromptDetail = .verbose, generate: Generate) async -> RouteResult {
         let now = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withInternetDateTime])
         // Document-focus mode: while the user works with a document, its relevant excerpts ride
-        // along on every request (appended to the system prompt below).
+        // along on every request — in the PER-TURN section, since they change with the query.
+        //
+        // Timed because it sits inside commit→first-token, the window that dominates latency.
+        // KV prefix caching barely moved that window, which disproved the assumption that it was
+        // mostly prompt prefill — so every other step in here is now a suspect.
+        let docStart = Date()
         let docContext = await DocumentFocus.shared.contextForQuery(command)
-        var system = """
+        let docElapsed = Date().timeIntervalSince(docStart)
+        if docElapsed > 0.05 {
+            NSLog("[OV] ttft breakdown: docContext %.3fs", docElapsed)
+        }
+        let stable = detail == .concise ? concisePrompt() : """
         You are a voice assistant for smart glasses that can recognize faces the user has taught you.
 
         Face actions apply ONLY to a real person PHYSICALLY IN FRONT of the user right now (seen through the glasses camera). If the user names a person, or asks about a public/famous/historical figure, or asks a general "who is…" question, that is NOT a face action — answer it or search instead.
@@ -87,7 +137,7 @@ enum LocalAgent {
         - Close the open document: {"tool":"search_docs","action":"unfocus"}
         TIME RULES (the tool does the date math — never compute a date or minute count yourself):
         - A specific time of day like "6pm", "9:30am", "at 6" → give "hour" in 24-hour form (6pm=18, 9am=9) and "minute" if any; add "day_offset":1 for tomorrow.
-        - Only "in N minutes/hours from now" → give "minutes_from_now". The current time is \(now).
+        - Only "in N minutes/hours from now" → give "minutes_from_now".
         Action examples:
         User: set a 5 minute timer → {"tool":"set_timer","seconds":300}
         User: remind me to go to the gym at 6pm → {"tool":"create_reminder","title":"go to the gym","hour":18}
@@ -105,10 +155,17 @@ enum LocalAgent {
 
         You DO have conversation memory: the earlier messages in this chat are your record of the conversation so far. Use them for follow-ups — e.g. for "what were we talking about?" summarize those earlier messages; for "what about X?" resolve it against the previous topic. Never claim you can't remember when earlier messages exist.
         """
-        if let docContext { system += "\n\n" + docContext }
-        guard let output = await generate(system, history, command) else {
+        // Everything that changes between turns lives here, AFTER the cacheable region: the clock
+        // (a timestamp mid-prompt would invalidate every token following it) and the focused
+        // document's excerpts, which are selected per query.
+        var perTurn = "The current time is \(now)."
+        if let docContext { perTurn += "\n\n" + docContext }
+        let prompt = Prompt(stable: stable, perTurn: perTurn)
+
+        guard let output = await generate(prompt, history, command) else {
             return .answer("Sorry, I couldn't process that — please try again.")
         }
+
         let result = await resolve(output, command: command)
 
         // Focused-document override (deterministic — prompt rules alone failed 3× on device):
@@ -121,15 +178,64 @@ enum LocalAgent {
                                 "who is this", "who am i looking"]
             if !presenceCues.contains(where: { lower.contains($0) }) {
                 NSLog("[OV] route override: identify → document answer (focus active, no presence cue)")
-                let answerSystem = "You are a voice assistant for smart glasses. Answer briefly "
-                    + "(1-3 short sentences) since your reply is spoken aloud.\n\n" + docContext
-                if let answer = await generate(answerSystem, history, command) {
+                // One-off prompt with document excerpts baked in — not worth caching, and the
+                // excerpts change per query anyway, so it all goes in the per-turn half.
+                let answerPrompt = Prompt(
+                    stable: "You are a voice assistant for smart glasses. Answer briefly "
+                        + "(1-3 short sentences) since your reply is spoken aloud.",
+                    perTurn: docContext
+                )
+                if let answer = await generate(answerPrompt, history, command) {
                     return .answer(answer.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
             }
         }
         return result
     }
+
+    /// Rules-only routing prompt for models strong enough to generalise without worked examples.
+    ///
+    /// Every RULE from the verbose prompt is preserved — what's dropped is the ~40 example lines.
+    /// The two must be kept in behavioural sync: if a routing rule changes, change it here too.
+    /// They are deliberately separate literals rather than one built from parts, because the
+    /// verbose text is hard-won (three on-device iterations) and must not shift by accident.
+    private static func concisePrompt() -> String {
+        """
+        You are a voice assistant for smart glasses that can recognize faces the user has taught you.
+
+        FACE ACTIONS — only for an UNKNOWN person PHYSICALLY IN FRONT of the user right now, seen through the camera. Reply with ONLY one JSON object:
+        - {"face":"identify","name":""} — who is this person in view
+        - {"face":"remember","name":"THE_NAME"} — save the person in view
+        - {"face":"forget","name":"THE_NAME"}
+        - {"face":"list","name":""}
+        NEVER a face action when: the request already NAMES a person; the subject is public/famous/historical; the question is about a document, letter, manual or recipe (that person is named in text, not standing there); or it's a general "who is…" question. Those are answered, searched, or read from documents.
+
+        WEB SEARCH — reply with ONLY {"tool":"web_search","query":"A_CONCISE_SEARCH_QUERY"} if EITHER: the user asks about current/real-time information (news, weather, sports, prices, recent events), OR you don't know, aren't fully confident, or your knowledge may be outdated. Never say you don't know without searching first.
+
+        ON-DEVICE ACTIONS — reply with ONLY one JSON object:
+        - {"tool":"set_timer","seconds":300,"label":"pasta"}   (label optional)
+        - {"tool":"start_pomodoro"}
+        - {"tool":"create_reminder","title":"call mom","hour":17}
+        - {"tool":"create_reminder","title":"leave","minutes_from_now":20}
+        - {"tool":"calendar","action":"add","title":"Focus","hour":15,"duration_minutes":25}
+        - {"tool":"calendar","action":"today"}   (or "upcoming")
+        - {"tool":"note","action":"save","content":"parked in lot B"}
+        - {"tool":"note","action":"search","query":"parking"}
+        - {"tool":"copy_to_clipboard","text":"the text to copy"}
+        - {"tool":"search_docs","action":"search","query":"router error 5"}
+        - {"tool":"search_docs","action":"focus","query":"router manual"}   (open a document to work with)
+        - {"tool":"search_docs","action":"unfocus"}
+
+        TIME RULES (the tool does the date math — never compute a date or minute count yourself):
+        - A time of day ("6pm", "9:30am", "at 6") → "hour" in 24-hour form (6pm=18) plus "minute" if any; add "day_offset":1 for tomorrow.
+        - Only "in N minutes/hours from now" → "minutes_from_now".
+
+        OTHERWISE answer directly, in 1-3 short sentences, only when genuinely confident it's stable well-known info (math, definitions, general facts). Do NOT mention faces, tools, or JSON.
+
+        You DO have conversation memory: the earlier messages in this chat are your record of the conversation. Use them for follow-ups and never claim you can't remember when earlier messages exist.
+        """
+    }
+
 
     /// Turn the model's raw output into a RouteResult (parse face/search/tool JSON, else answer).
     private static func resolve(_ output: String, command: String) async -> RouteResult {
@@ -174,7 +280,7 @@ enum LocalAgent {
         """
         let context = result.isEmpty ? "(no web result found)" : result
         let user = "Question: \(question)\n\nWeb search result: \(context)"
-        if let out = await generate(system, [], user),
+        if let out = await generate(Prompt(stable: system, perTurn: ""), [], user),
            !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return out.trimmingCharacters(in: .whitespacesAndNewlines)
         }

@@ -115,6 +115,16 @@ final class VoiceCommandService: ObservableObject {
     private var conversationTimeoutTimer: Timer?
     private var wakeWordCooldownActive: Bool = false
 
+    // MARK: - Voice activity detection
+
+    /// Acoustic end-of-speech detection. When available it replaces the transcript-timing silence
+    /// timer, which could never tell "still talking" from "done" — see SpeechActivityDetector.
+    private let speechDetector = SpeechActivityDetector()
+
+    /// True once VAD has told us speech stopped and we're waiting out `Constants.Voice
+    /// .vadCommitGrace` before committing the turn. Cleared if speech resumes.
+    private var vadCommitPending = false
+
     /// Tracks if user has started speaking in this turn
     private var hasSpokenThisTurn: Bool = false
 
@@ -126,6 +136,48 @@ final class VoiceCommandService: ObservableObject {
 
     private init() {
         setupActivationSound()
+        setupSpeechDetector()
+    }
+
+    /// Wire VAD events and load the model. The model load is async and may fail (no assets, older
+    /// device); until/unless it succeeds `speechDetector.isAvailable` stays false and end-of-turn
+    /// silently keeps using the transcript-timing timer.
+    private func setupSpeechDetector() {
+        speechDetector.onSpeechStart = { [weak self] in
+            guard let self else { return }
+            // Speech resumed — whatever pause we were counting out was mid-sentence, not the end.
+            self.vadCommitPending = false
+            self.silenceTimer?.invalidate()
+            self.silenceTimer = nil
+        }
+        speechDetector.onSpeechEnd = { [weak self] in
+            self?.handleSpeechEnded()
+        }
+        Task { await speechDetector.start() }
+    }
+
+    /// VAD says the mic went quiet. This is the signal the old timer was only ever approximating,
+    /// so the wait after it can be short: Silero has already absorbed ~0.75s of hysteresis, and
+    /// speech resuming cancels this via `onSpeechStart`.
+    private func handleSpeechEnded() {
+        // Only the command-capture states commit a turn; idle/processing ignore end-of-speech.
+        guard state == .listening || state == .conversationMode else { return }
+        guard hasSpokenThisTurn, !currentTranscription.isEmpty else { return }
+
+        print("[VoiceCommand] VAD end-of-speech → committing in \(Constants.Voice.vadCommitGrace)s: '\(currentTranscription)'")
+        // Turn latency starts counting from the moment the user actually stopped talking.
+        MetricsCollector.shared.markSpeechEnd()
+        vadCommitPending = true
+        silenceTimer?.invalidate()
+        silenceTimer = Timer.scheduledTimer(
+            withTimeInterval: Constants.Voice.vadCommitGrace, repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.vadCommitPending else { return }
+                self.vadCommitPending = false
+                self.handleSilenceTimeout()
+            }
+        }
     }
 
     // MARK: - Authorization
@@ -186,9 +238,15 @@ final class VoiceCommandService: ObservableObject {
 
         // Install tap — wrapped so an AVAudioEngine NSException (mic busy / bad route, e.g.
         // during a phone call) fails gracefully instead of aborting the process.
+        //
+        // The block runs on the Core Audio render thread, so it must stay allocation-light and
+        // must not touch main-actor state. `feed` only converts + buffers, handing full chunks to
+        // the detector's own consumer (see SpeechActivityDetector's threading note).
+        let detector = speechDetector
         if let reason = OVCatchException({
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
                 recognitionRequest.append(buffer)
+                detector.feed(buffer)
             }
         }) {
             print("[VoiceCommand] installTap failed: \(reason)")
@@ -289,6 +347,11 @@ final class VoiceCommandService: ObservableObject {
         audioEngine?.stop()
         audioEngine = nil
 
+        // The tap is gone, so no more audio reaches VAD; drop buffered samples and any pending
+        // commit so a restart begins clean.
+        speechDetector.reset()
+        vadCommitPending = false
+
         silenceTimer?.invalidate()
         silenceTimer = nil
         commandTimeoutTimer?.invalidate()
@@ -368,9 +431,14 @@ final class VoiceCommandService: ObservableObject {
             return
         }
 
+        // Reinstall may follow a route change (phone mic <-> glasses HFP), so the detector's
+        // cached converter is built for the OLD format and would emit garbage — drop it.
+        speechDetector.reset()
+        let detector = speechDetector
         if let reason = OVCatchException({
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
                 recognitionRequest.append(buffer)
+                detector.feed(buffer)
             }
         }) {
             print("[VoiceCommand] installTap (reinstall) failed: \(reason)")
@@ -390,11 +458,15 @@ final class VoiceCommandService: ObservableObject {
         }
 
         print("[VoiceCommand] Restarted recognition (cleared buffer)")
+        // Restart churn is the proxy for recognizer health: a high rate here is what shreds
+        // transcripts into fragments like "53258 Okay Vision".
+        MetricsCollector.shared.count("recognition_restart")
     }
 
     /// Exit conversation mode
     func exitConversationMode() {
         state = isWakeWordEnabled ? .idle : .listening
+        vadCommitPending = false
         silenceTimer?.invalidate()
         silenceTimer = nil
         conversationTimeoutTimer?.invalidate()
@@ -641,6 +713,7 @@ final class VoiceCommandService: ObservableObject {
     /// Handle wake word detection
     private func handleWakeWordDetected() {
         print("[VoiceCommand] Wake word detected!")
+        MetricsCollector.shared.count("wake_word_detected")
 
         // Activate cooldown
         wakeWordCooldownActive = true
@@ -679,10 +752,13 @@ final class VoiceCommandService: ObservableObject {
         guard !command.isEmpty else { return }
 
         print("[VoiceCommand] Command captured: \(command)")
+        MetricsCollector.shared.count("command_captured")
 
         state = .processing
         silenceTimer?.invalidate()
         commandTimeoutTimer?.invalidate()
+        // Turn is committed; a late VAD speech-end must not fire a second commit.
+        vadCommitPending = false
 
         // Clear transcription to prevent re-sending the same command
         currentTranscription = ""
@@ -711,8 +787,17 @@ final class VoiceCommandService: ObservableObject {
 
     // MARK: - Timers
 
-    /// Reset silence timer
+    /// Reset the transcript-timing silence timer — the FALLBACK end-of-turn path.
+    ///
+    /// When VAD is available the turn is committed from `onSpeechEnd` instead, and this does
+    /// nothing: re-arming here on every partial result would fight the VAD commit, and the long
+    /// timeout would silently win whenever a partial happened to land during the grace window.
+    ///
+    /// Without VAD we keep the historical behaviour. The timeout stays deliberately long because
+    /// this signal measures "no new transcript for N seconds", NOT silence — SFSpeechRecognizer
+    /// emits partials in bursts with ~1s gaps mid-sentence, so anything short cuts the user off.
     private func resetSilenceTimer() {
+        guard !speechDetector.isAvailable else { return }
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: Constants.Voice.silenceTimeout, repeats: false) { [weak self] _ in
             Task { @MainActor in
@@ -724,6 +809,9 @@ final class VoiceCommandService: ObservableObject {
     /// Handle silence timeout
     private func handleSilenceTimeout() {
         guard state == .listening || state == .conversationMode else { return }
+
+        // Covers the no-VAD fallback path; idempotent, so it's a no-op when VAD already marked it.
+        MetricsCollector.shared.markSpeechEnd()
 
         if !currentTranscription.isEmpty {
             handleCommandComplete(currentTranscription)

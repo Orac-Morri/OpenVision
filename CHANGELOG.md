@@ -5,6 +5,25 @@ All notable changes to OpenVision will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-08-15
+
+### Added
+- **Continuous live vision** — in local live video mode (FastVLM/SmolVLM2), the assistant now watches the glasses feed continuously: it describes each new scene once your view settles, keeps that as silent context on screen, and uses it to ground your questions instantly. It only *speaks* when you ask — say **"start narrating"** for spoken scene descriptions (accessibility), "stop narrating" to go quiet again
+- **Acoustic voice-activity detection** — end-of-turn is now detected from the microphone signal (on-device Silero VAD on the Neural Engine) instead of a fixed 4-second silence timer. Finish a sentence and the assistant responds in about a second; pause mid-thought and it waits
+- **Kokoro streaming** — with the Kokoro voice selected, replies are now spoken sentence-by-sentence while the model is still writing (~1.2s faster per turn), with strict ordering and interruption-safe playback
+- **Self-hosted telemetry** (opt-in, off by default) — per-turn latency breakdown (endpointing / time-to-first-token / generation / speech), tokens/sec, success and interruption rates, device health (memory, thermal, jetsam headroom), pushed to your own InfluxDB with a provisioned Grafana dashboard (`telemetry/docker-compose.yml`). Numbers only — never transcripts or prompts
+
+### Changed
+- **Bonsai 8B gets a concise routing prompt** (60% shorter), roughly halving its time-to-first-token; smaller models keep the fully-worked-examples prompt they need
+- The local backend keeps a KV prefix cache across turns, so the routing prompt is processed once per session instead of every turn
+- Live-mode questions answer against the freshest camera frame with the watch loop's recent description attached as grounding
+
+### Fixed
+- Replies are no longer cut off mid-sentence by background narration; ambient speech can only ever speak into silence
+- Voice replies with Kokoro no longer play sentences out of order
+- A reply could be dropped entirely when generation finished before the first sentence's synthesis
+- Numerous telemetry corrections (honest audio-start timing, exact library-reported token counts, per-model tagging) — see commit history for the full audit
+
 ## [2.10.0] - 2026-08-14
 
 ### Added

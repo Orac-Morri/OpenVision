@@ -138,6 +138,23 @@ struct AppSettings: Codable, Equatable {
     /// Selected Kokoro voice (e.g. "af_heart"). First letter: a = American, b = British.
     var kokoroVoice: String = "af_heart"
 
+    // MARK: - Telemetry (opt-in, self-hosted)
+
+    /// Push runtime metrics to your own InfluxDB. OFF by default and inert until a URL is set.
+    /// Sends timings and device health only — never transcripts, replies, or tool arguments.
+    var telemetryEnabled: Bool = false
+    /// Base URL of your InfluxDB, e.g. "http://192.168.1.20:8086". Use the LAN IP or a `.local`
+    /// name, never localhost — on the phone that would be the phone.
+    var telemetryURL: String = ""
+    var telemetryBucket: String = "metrics"
+    var telemetryOrg: String = "openvision"
+    /// InfluxDB v2 API token. Preferred; when empty the username/password below are used (v1).
+    var telemetryToken: String = ""
+    var telemetryUsername: String = ""
+    var telemetryPassword: String = ""
+    /// Tag on every point so several devices stay distinguishable in Grafana.
+    var telemetryDeviceName: String = "iphone"
+
     /// Prefer the glasses' Bluetooth microphone for voice input when they're the connected audio
     /// device — true hands-free. Falls back to the phone mic automatically when the glasses aren't
     /// the audio route. Turn off to always use the phone. (Glasses mic uses more battery.)

@@ -132,6 +132,10 @@ final class VoiceAgentViewModel: ObservableObject {
             // (prevents microphone picking up TTS and triggering interruption)
             voiceCommandService.isBargeInPaused = true
         } else {
+            // Playback finished — closes the turn and publishes it to the metrics sinks.
+            MetricsCollector.shared.markSpokeDone()
+            commandTurnActive = false   // reply fully played; ambient narration may resume
+
             // Resume barge-in detection
             voiceCommandService.isBargeInPaused = false
 
@@ -153,6 +157,12 @@ final class VoiceAgentViewModel: ObservableObject {
             agentState = .speaking
             voiceCommandService.isBargeInPaused = true
         } else {
+            // Kokoro has its OWN speaking-state callback, so instrumenting only
+            // ttsSpeakingChanged left every Kokoro turn unpublished — device metrics kept
+            // flowing while turn metrics silently vanished whenever Kokoro was selected.
+            MetricsCollector.shared.markSpokeDone()
+            commandTurnActive = false   // reply fully played; ambient narration may resume
+
             voiceCommandService.isBargeInPaused = false
             if isSessionActive {
                 agentState = .listening
@@ -429,6 +439,13 @@ final class VoiceAgentViewModel: ObservableObject {
     /// quiet back to wake-word listening. The recognizer buffer is already reset by
     /// VoiceCommandService (so the stale transcript can't re-fire); here we just halt + end the turn.
     private func performFullStop() {
+        // "Ok Vision stop" is an interruption too: the user cut the reply off. Close the turn
+        // deterministically before stopping the engines — delivered-then-stopped turns finish
+        // here (markSpokeDone is gated on firstAudio); a stop mid-thinking leaves the turn open
+        // to be recorded as failed by the next beginTurn.
+        MetricsCollector.shared.markInterrupted()
+        MetricsCollector.shared.markSpokeDone()
+        commandTurnActive = false
         ttsService.stop()
         KokoroTTSService.shared.stop()
         audioPlayback.stop()
@@ -505,8 +522,15 @@ final class VoiceAgentViewModel: ObservableObject {
             self.soundService.playWakeWordSound()
 
             // If TTS is speaking, stop it immediately (interrupt)
-            if self.ttsService.isSpeaking {
+            if self.ttsService.isSpeaking || KokoroTTSService.shared.isSpeaking {
                 print("[VoiceAgent] Stopping TTS due to wake word interrupt")
+                // Also an interruption: the user said the wake word over a reply in progress.
+                MetricsCollector.shared.markInterrupted()
+                // Close the turn NOW, deterministically: delivered-then-cut-off turns finish
+                // here (markSpokeDone is gated on firstAudio); pre-audio ones stay open and are
+                // recorded as failed by the next beginTurn. Leaving this to the engine's async
+                // speaking-changed callback raced the next turn's speechEnd.
+                MetricsCollector.shared.markSpokeDone()
                 self.ttsService.stop()
                 self.ttsStreaming = false   // keep flag in sync with the cleared stream
                 KokoroTTSService.shared.stop()
@@ -546,6 +570,23 @@ final class VoiceAgentViewModel: ObservableObject {
             }
 
             self.userTranscript = command
+            // Suspend ambient narration for the WHOLE turn (through reply playback).
+            self.commandTurnActive = true
+
+            // Telemetry: the turn is now the backend's problem — everything after this is
+            // think time, and everything before it was endpointing.
+            //
+            // The model must be the one ACTUALLY LOADED, not `settings.localGemmaModelId`:
+            // that setting is the *selected local model* and doesn't change when the active
+            // backend is Apple Intelligence or a cloud service, so turns served by something
+            // else were mislabelled as the local model — which made model comparisons in
+            // Grafana quietly meaningless.
+            let backend = self.settingsManager.settings.aiBackend
+            MetricsCollector.shared.markCommit(
+                backend: backend.rawValue,
+                model: backend == .localGemma ? GemmaLocalService.shared.activeModelId : nil,
+                ttsEngine: self.usingAppleTTS ? "apple" : "kokoro"
+            )
 
             // History: every captured command is a user message (Meta AI records all glasses
             // prompts to its History tab; same idea, on-device).
@@ -562,6 +603,9 @@ final class VoiceAgentViewModel: ObservableObject {
         voiceCommandService.onInterruption = { [weak self] in
             guard let self else { return }
             print("[VoiceAgent] Barge-in detected")
+            // Interruption rate is a satisfaction signal: users talk over an agent that is slow,
+            // wrong, or too verbose. Recorded on the turn being interrupted.
+            MetricsCollector.shared.markInterrupted()
 
             // Stop TTS immediately
             self.ttsService.stop()
@@ -615,6 +659,10 @@ final class VoiceAgentViewModel: ObservableObject {
                 // while the user was silently looking around.
                 guard self.isSessionActive || self.isLiveVideoMode else { return }
                 self.aiTranscript = message
+                // Reply text is final. For non-streaming backends this is also the first output
+                // we ever saw, and markFirstToken is first-wins, so it stays accurate either way.
+                MetricsCollector.shared.markFirstToken()
+                MetricsCollector.shared.markGenerationDone()
                 if self.ttsStreaming {
                     // A streamed utterance is open (local model + Apple TTS pipelining):
                     // flush the unspoken tail and close the session.
@@ -636,10 +684,21 @@ final class VoiceAgentViewModel: ObservableObject {
                     // close it here so streamingActive/isSpeaking don't stick true and freeze the
                     // wake-word listener (queued sentences still drain and reset isSpeaking).
                     if self.ttsStreaming {
-                        self.ttsService.endStreaming()
+                        // Close whichever engine has the open utterance — leaving Kokoro's open
+                        // would strand isSpeaking true and freeze the wake-word listener.
+                        if self.usingAppleTTS {
+                            self.ttsService.endStreaming()
+                        } else {
+                            KokoroTTSService.shared.endStreaming()
+                        }
                         self.ttsStreaming = false
                     }
-                    if self.agentState == .thinking && !self.ttsService.isSpeaking {
+                    if !self.ttsService.isSpeaking && !KokoroTTSService.shared.isSpeaking {
+                        // Turn produced no speech (error/interrupt) — release the narration hold.
+                        self.commandTurnActive = false
+                    }
+                    if self.agentState == .thinking
+                        && !self.ttsService.isSpeaking && !KokoroTTSService.shared.isSpeaking {
                         // Return to the live video indicator, not plain listening, while in live mode.
                         self.agentState = self.isLiveVideoMode ? .liveVideo
                             : (self.isSessionActive ? .listening : .idle)
@@ -654,10 +713,12 @@ final class VoiceAgentViewModel: ObservableObject {
             guard self.isSessionActive || self.isLiveVideoMode else { return }
             // Show tokens as they stream so it doesn't look stuck on "thinking".
             self.aiTranscript = partial
+            // First streamed token: the boundary between "backend thinking" and "producing".
+            MetricsCollector.shared.markFirstToken()
             // Apple TTS: start speaking completed sentences as they arrive (pipeline speech
             // behind generation) instead of waiting for the whole reply. Big perceived speedup,
             // and Apple TTS isn't on the GPU so it doesn't fight the on-device model.
-            if self.usingAppleTTS { self.feedStreamingSpeech(partial, isFinal: false) }
+            if self.canStreamSpeech { self.feedStreamingSpeech(partial, isFinal: false) }
         }
 
         // OpenClaw extras: tool status + device-side tool calls.
@@ -701,6 +762,10 @@ final class VoiceAgentViewModel: ObservableObject {
 
         GeminiLiveService.shared.onTurnComplete = { [weak self] in
             guard let self else { return }
+            // Cloud live turns can only be COUNTED: the server does VAD, so the client never
+            // sees when the user stopped speaking and a perceived-latency figure would be
+            // fabricated. Counting keeps live-mode usage visible without inventing numbers.
+            MetricsCollector.shared.count("live_turn_gemini")
             self.agentState = self.isSessionActive ? .listening : .idle
             self.voiceCommandService.enterConversationMode()
             // History: persist this Gemini Live exchange (transcript only, no frames).
@@ -1005,30 +1070,254 @@ final class VoiceAgentViewModel: ObservableObject {
         isLiveVideoMode = true
         agentState = .liveVideo
 
-        print("[VoiceAgent] ✓ Local live video mode active - SmolVLM2 answering on latest frame")
+        // Continuous watch loop: describe the CURRENT view as it changes, instead of only
+        // answering on the frame that was current when a question finished processing — the old
+        // behaviour spoke about whatever it saw last, seconds behind a head turn.
+        startWatchLoop()
+
+        print("[VoiceAgent] ✓ Local live video mode active - watch loop + questions on latest frame")
         ttsService.speak("Live video mode active, on device")
     }
 
     /// Answer a spoken question in local live video mode using a fresh, settled glasses frame.
     private func handleLocalLiveVideoCommand(_ command: String) async {
+        // Deterministic narration toggle — a code guard, not model routing, per the repo's
+        // standing lesson that small models ignore subtle routing rules.
+        let lower = command.lowercased()
+        if lower.contains("narrat") || lower.contains("describe as i") {
+            let turningOff = lower.contains("stop") || lower.contains("off") || lower.contains("quiet")
+            watchNarrationEnabled = !turningOff
+            watchLastSpoken = nil
+            watchLastSpokenThumb = nil
+            speakResponse(turningOff ? "Okay, I'll watch quietly." : "Okay, I'll describe what I see as you go.")
+            return
+        }
         agentState = .thinking
         // Let head motion settle and grab the freshest frame, so we describe the CURRENT view
         // rather than a stale/motion-blurred one the Bluetooth stream delivered a beat ago.
-        guard let frame = await freshestGlassesFrame(settle: 0.3, maxWait: 1.0),
+        //
+        // Timed for telemetry: this wait sits between commit and first token, so a vision turn's
+        // ttft INCLUDES it (up to ~1.3s). Recording frame_grab_s separately stops that time
+        // being misread as the model thinking.
+        let frameGrabStart = Date()
+        let grabbed = await freshestGlassesFrame(settle: 0.3, maxWait: 1.0)
+        MetricsCollector.shared.markFrameGrab(seconds: Date().timeIntervalSince(frameGrabStart))
+        guard let frame = grabbed,
               let jpeg = frame.jpegData(compressionQuality: 0.6) else {
+            // Counted so a flaky glasses stream is visible in the events panel; the spoken
+            // apology still counts as a delivered reply (success = delivered, not correct).
+            MetricsCollector.shared.count("live_frame_unavailable")
             speakResponse("I couldn't get a clear view just now — hold still a second and ask again.")
             agentState = .liveVideo
             return
         }
         do {
             // Strip "take a photo"-style wording; the frame is already attached.
-            let prompt = visionPromptFromCommand(command)
+            var prompt = visionPromptFromCommand(command)
+            // Ground with the watch loop's silent context when it's fresh: the model answers the
+            // question against the frame, with its own recent read of the scene as a hint —
+            // this is what the loop is FOR now that it no longer narrates.
+            if let latest = watchLatestDescription, Date().timeIntervalSince(latest.at) < 20 {
+                prompt += "\n(Your own view a moment ago: \(latest.text))"
+            }
             try await GemmaLocalService.shared.sendMessage(prompt, imageData: jpeg)
         } catch {
             print("[VoiceAgent] Local live video inference failed: \(error)")
             speakResponse("Sorry, that didn't work. \(error.localizedDescription)")
         }
         if isLiveVideoMode { agentState = .liveVideo }
+    }
+
+    // MARK: - Continuous watch loop (local live video)
+
+    private var watchTask: Task<Void, Never>?
+    /// Grayscale thumbnail of the last frame we RAN INFERENCE on — the scene-change gate.
+    private var watchLastThumb: [UInt8]?
+    /// The last description actually SPOKEN — the chatter gate.
+    private var watchLastSpoken: String?
+    /// Thumbnail of the scene the last SPOKEN line described. A stronger repeat-gate than text
+    /// similarity alone: short sentences share few words, so rephrasings of the same scene
+    /// scored as "new" and were re-announced. Same scene = one announcement, full stop.
+    private var watchLastSpokenThumb: [UInt8]?
+    /// Previous polled thumbnail — the DWELL gate compares against this, not the last described
+    /// scene: describe only once the view has stopped moving.
+    private var watchPrevPollThumb: [UInt8]?
+    /// When the last inference finished — enforces a hard duty-cycle floor.
+    private var watchLastDescribeEnd = Date.distantPast
+    /// Freshest description of the current view + when it was made. This is the loop's real
+    /// product: silent visual context, kept warm so questions can be grounded instantly.
+    private(set) var watchLatestDescription: (text: String, at: Date)?
+    /// Whether the loop SPEAKS what it sees. OFF by default — this is how Gemini Live and
+    /// ChatGPT video behave: continuous perception, but the assistant only talks when asked.
+    /// The first cut narrated every scene change and it was noise ("even if I don't ask it's
+    /// speaking by itself"). Toggled by voice: "start narrating" / "stop narrating".
+    private var watchNarrationEnabled = false
+    /// Minimum time between inferences. On-device test: walking made every frame a "new scene",
+    /// chaining back-to-back full-GPU inferences — times ramped 3.3s -> 9.6s and the device hit
+    /// thermal SERIOUS in ninety seconds. The loop must idle even when the world keeps changing.
+    private static let watchMinDescribeInterval: TimeInterval = 4.0
+    /// True from command capture until the reply has FINISHED PLAYING. The watch loop's
+    /// point-in-time "is anything speaking?" checks straddled 1-3s of async inference+synthesis,
+    /// so a reply could begin inside that window and get preempted by the finished watch line —
+    /// cutting the user's answer off mid-sentence. This flag covers the whole turn lifecycle.
+    private var commandTurnActive = false
+
+    /// Describe the current view continuously, spending inference only on scene changes and
+    /// speech only on genuinely new content. Economics per frame (measured): inference ~1-2s of
+    /// GPU; speaking costs contention on top (decode drops ~40% while Kokoro synthesises). Both
+    /// gates are pure logic in FrameChange, with tests.
+    private func startWatchLoop() {
+        stopWatchLoop()
+        // Only vision-trusted local models; the loop silently does nothing on a text model.
+        guard GemmaLocalModel.from(modelId: settingsManager.settings.localGemmaModelId).supportsOnDeviceVision else {
+            print("[VoiceAgent] Watch loop not started — loaded model has no on-device vision")
+            return
+        }
+        watchLastThumb = nil
+        watchLastSpoken = nil
+        watchTask = Task { [weak self] in
+            while let self, !Task.isCancelled, self.isLiveVideoMode {
+                // Yield entirely while a question is being answered or a reply is being spoken —
+                // the loop must never steal GPU from a real turn, and describing while speaking
+                // would talk over the answer.
+                if self.commandTurnActive || self.agentState == .thinking
+                    || self.ttsService.isSpeaking || KokoroTTSService.shared.isSpeaking {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
+                // Freshness over completeness: only a frame from the last 500ms, no settle wait.
+                guard Date().timeIntervalSince(self.glassesManager.lastFrameTime) < 0.5,
+                      let frame = self.glassesManager.lastFrame else {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    continue
+                }
+                // Duty-cycle floor FIRST: on-device, a walk made every frame a new scene and
+                // the chained inferences thermal-throttled the phone to "serious" (3.3s -> 9.6s
+                // per frame). The loop idles between describes no matter what the world does.
+                guard Date().timeIntervalSince(self.watchLastDescribeEnd) >= Self.watchMinDescribeInterval else {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    continue
+                }
+                let thumb = Self.grayThumbnail(frame)
+                let prevPoll = self.watchPrevPollThumb
+                self.watchPrevPollThumb = thumb
+                // DWELL gate: describe only once the view has SETTLED — this poll must match the
+                // previous poll. Mid-pan frames are motion-blurred (the model literally said
+                // "a blurry image"), waste full-GPU inferences on views the wearer is already
+                // leaving, and narrate the journey instead of the destination.
+                if let prevPoll, FrameChange.isNewScene(thumb, prevPoll) {
+                    MetricsCollector.shared.count("watch_skipped")
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
+                // Scene gate: the settled view must differ from the last DESCRIBED scene.
+                if let last = self.watchLastThumb {
+                    let diff = FrameChange.difference(thumb, last)
+                    if diff <= FrameChange.sceneChangeThreshold {
+                        MetricsCollector.shared.count("watch_skipped")
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        continue
+                    }
+                    NSLog("[OV] watch: NEW SETTLED SCENE diff=%.3f", diff)
+                }
+                guard let jpeg = frame.jpegData(compressionQuality: 0.6) else {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    continue
+                }
+                self.watchLastThumb = thumb
+                let inferStart = Date()
+                do {
+                    let raw = try await GemmaLocalService.shared.describeFrame(
+                        jpeg, prompt: "What is in view right now?")
+                    self.watchLastDescribeEnd = Date()
+                    // The token cap truncates mid-sentence ("...and a mouse" / "The plant is") —
+                    // trim to the last COMPLETE sentence; a fragment-only output is dropped.
+                    let description: String
+                    if let boundary = TextChunking.lastSentenceBoundary(in: raw) {
+                        description = String(raw[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else {
+                        description = ""
+                    }
+                    let inferSeconds = Date().timeIntervalSince(inferStart)
+                    MetricsCollector.shared.count("watch_described")
+                    NSLog("[OV] watch: %.2fs \"%@\"", inferSeconds, description.isEmpty ? raw + " [fragment, dropped]" : description)
+                    // Speak gates, all must pass:
+                    //  1. the SCENE moved on since the last spoken line — text similarity alone
+                    //     re-announced rephrasings ("this is a plant" / "a potted plant" share
+                    //     too few words), so same scene = one announcement, full stop;
+                    //  2. the description says something new;
+                    //  3. no command turn began while we were inferring (the async window the
+                    //     old point-checks missed — this is what cut replies mid-sentence).
+                    // speakWatchLine itself is ambient: appends into silence, never preempts.
+                    if !description.isEmpty {
+                        self.watchLatestDescription = (description, Date())
+                        self.aiTranscript = description   // silent context still shows on screen
+                    }
+                    let sceneMovedOn = self.watchLastSpokenThumb.map {
+                        FrameChange.isNewScene(thumb, $0)
+                    } ?? true
+                    if self.watchNarrationEnabled,
+                       !description.isEmpty, sceneMovedOn,
+                       FrameChange.isWorthSpeaking(description, lastSpoken: self.watchLastSpoken),
+                       !self.commandTurnActive,
+                       !self.ttsService.isSpeaking, !KokoroTTSService.shared.isSpeaking,
+                       self.agentState != .thinking, self.isLiveVideoMode {
+                        self.watchLastSpoken = description
+                        self.watchLastSpokenThumb = thumb
+                        MetricsCollector.shared.count("watch_spoke")
+                        self.speakWatchLine(description)
+                    }
+                } catch {
+                    // Model switching/backgrounded mid-loop is normal; back off rather than spin.
+                    self.watchLastDescribeEnd = Date()
+                    NSLog("[OV] watch: describe failed: %@", "\(error)")
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            }
+        }
+    }
+
+    private func stopWatchLoop() {
+        watchTask?.cancel()
+        watchTask = nil
+        watchLastThumb = nil
+        watchLastSpoken = nil
+        watchLastSpokenThumb = nil
+        watchPrevPollThumb = nil
+        watchLastDescribeEnd = .distantPast
+        watchLatestDescription = nil
+        watchNarrationEnabled = false
+    }
+
+    /// Speak a watch-loop line OUTSIDE the turn pipeline: no history, no turn metrics — and via
+    /// the AMBIENT engine paths, which append into silence and never preempt. The reply paths
+    /// (speak/beginStreaming) restart the player; a watch line using them cut user replies off
+    /// mid-sentence whenever one landed during the line's synthesis window.
+    private func speakWatchLine(_ text: String) {
+        if settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady {
+            let voice = settingsManager.settings.kokoroVoice
+            Task { await KokoroTTSService.shared.speakAmbient(text, voice: voice) }
+        } else {
+            ttsService.speakAmbient(text)
+        }
+    }
+
+    /// Downscale to a 16×16 grayscale thumbnail for the scene-change gate. Cheap enough to run
+    /// on every polled frame; the comparison math lives (tested) in FrameChange.
+    private static func grayThumbnail(_ image: UIImage) -> [UInt8] {
+        let side = 16
+        var pixels = [UInt8](repeating: 0, count: side * side)
+        guard let cg = image.cgImage else { return pixels }
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: side, height: side,
+                bitsPerComponent: 8, bytesPerRow: side, space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return }
+            context.interpolationQuality = .low
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+        return pixels
     }
 
     /// Wait a brief `settle` for head motion to stop, then return the freshest camera frame that's
@@ -1055,6 +1344,7 @@ final class VoiceAgentViewModel: ObservableObject {
             print("[VoiceAgent] Not in live video mode")
             return
         }
+        stopWatchLoop()
 
         print("[VoiceAgent] Stopping live video mode...")
 
@@ -1142,8 +1432,13 @@ final class VoiceAgentViewModel: ObservableObject {
         }
 
         // Turn complete
+        let liveTurnEvent = service === geminiLive ? "live_turn_gemini" : "live_turn_openai"
         service.onTurnComplete = { [weak self] in
             Task { @MainActor in
+                // Cloud live turns are COUNTED, not timed: the server does the VAD, so the
+                // client never sees when the user stopped speaking — any perceived-latency
+                // number here would be fabricated. The count keeps live usage visible.
+                MetricsCollector.shared.count(liveTurnEvent)
                 // History: persist this live-video exchange (transcript only, no frames).
                 self?.recordLiveTurn()
             }
@@ -1280,18 +1575,27 @@ final class VoiceAgentViewModel: ObservableObject {
         // starting with "{", so we only begin speaking once the streamed output's first non-space
         // char proves it's a plain answer — never for a structured route.
         let result: LocalAgent.RouteResult
-        if usingAppleTTS {
+        if canStreamSpeech {
             ttsStreaming = false
             ttsStreamSpokenChars = 0
             result = await llm.routeCommandStreaming(command) { [weak self] cumulative in
                 guard let self else { return }
+                // Telemetry: the model has started producing. Marked before the JSON-route guard
+                // below so a structured route still records its think time.
+                MetricsCollector.shared.markFirstToken()
                 let lead = cumulative.trimmingCharacters(in: .whitespacesAndNewlines).first
                 guard let lead, lead != "{" else { return }   // JSON route → don't speak
                 self.feedStreamingSpeech(cumulative, isFinal: false)
             }
         } else {
+            // Non-streaming: no visibility into decode, so first-token is backfilled by
+            // markGenerationDone and `ttft` legitimately covers the whole generation.
             result = await llm.routeCommand(command)
         }
+        // The local route is not delivered through AIBackend.onAgentMessage (it returns a
+        // RouteResult instead), so generation-done has to be marked here or the whole stage
+        // breakdown after commit goes missing.
+        MetricsCollector.shared.markGenerationDone()
 
         switch result {
         case .face(let intent):
@@ -1540,11 +1844,21 @@ final class VoiceAgentViewModel: ObservableObject {
 
     // MARK: - TTS Integration
 
-    /// True when the active speech engine is Apple's system voice (not Kokoro). Apple TTS runs on
-    /// a system audio service — not the Metal GPU — so it can pipeline speech while the on-device
-    /// model is still generating, with no resource contention.
+    /// True when the active speech engine is Apple's system voice (not Kokoro).
+    ///
+    /// This used to also gate whether the reply was STREAMED, because Kokoro runs on the Metal GPU
+    /// alongside the on-device model and interleaving them risked contention. But waiting for the
+    /// whole reply before speaking measured at ~1.2s of extra perceived latency per turn — Kokoro
+    /// turns showed `tts_lead_in` of +0.01s (perfectly serialised) against Apple TTS's -1.4s
+    /// (speech overlapping generation). Both engines now stream; if contention is real it shows up
+    /// as `tokens_per_second` dropping, which is instrumented.
     private var usingAppleTTS: Bool {
         !(settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady)
+    }
+
+    /// True when a streamed reply should be spoken sentence-by-sentence — now both engines.
+    private var canStreamSpeech: Bool {
+        usingAppleTTS || KokoroTTSService.shared.isModelReady
     }
 
     /// Feed the streamed reply to Apple TTS sentence-by-sentence. `cumulative` is the full text so
@@ -1556,7 +1870,18 @@ final class VoiceAgentViewModel: ObservableObject {
             guard !cumulative.isEmpty else { return }
             ttsStreaming = true
             ttsStreamSpokenChars = 0
-            ttsService.beginStreaming()
+            // Streamed replies never reach speakResponse, so this is where perceived latency ends
+            // on the Apple-TTS path — and it lands EARLIER than on the Kokoro path, which is
+            // exactly the difference `tts_lead_in_s` is meant to expose.
+            // No metric marks here: opening the stream session hands NOTHING to an engine —
+            // the first sentence may only complete a boundary seconds later. markTTSRequested
+            // fires in speakStreamedChunk at the actual hand-off; markFirstAudio fires inside
+            // the engines when sound actually starts.
+            if usingAppleTTS {
+                ttsService.beginStreaming()
+            } else {
+                KokoroTTSService.shared.beginStreaming()
+            }
         }
 
         // The portion not yet handed to the speech queue.
@@ -1566,9 +1891,13 @@ final class VoiceAgentViewModel: ObservableObject {
 
         if isFinal {
             let tail = pending.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !tail.isEmpty { ttsService.speakChunk(tail) }
+            if !tail.isEmpty { speakStreamedChunk(tail) }
             ttsStreamSpokenChars = cumulative.count
-            ttsService.endStreaming()
+            if usingAppleTTS {
+                ttsService.endStreaming()
+            } else {
+                KokoroTTSService.shared.endStreaming()
+            }
             ttsStreaming = false
             recordAssistantReply(cumulative)   // history: streamed reply is complete
             return
@@ -1579,14 +1908,37 @@ final class VoiceAgentViewModel: ObservableObject {
         let pendingStr = String(pending)
         let sentence = String(pendingStr[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard sentence.count >= 2 else { return }   // don't voice a stray "." or "?"
-        ttsService.speakChunk(sentence)
+        speakStreamedChunk(sentence)
         ttsStreamSpokenChars += pendingStr.distance(from: pendingStr.startIndex, to: boundary)
+    }
+
+    /// Speak one completed sentence on whichever engine is active.
+    ///
+    /// Both calls are synchronous enqueues now. The previous version wrapped Kokoro in a fresh
+    /// `Task` per sentence — independent tasks are UNORDERED, so sentence 2 could synthesise and
+    /// play before sentence 1 (the comment claiming order was preserved was wrong). Kokoro now
+    /// owns a FIFO drained by a single task, making ordering structural.
+    private func speakStreamedChunk(_ sentence: String) {
+        // First-wins: the first sentence handed over starts the TTS TTFB clock.
+        MetricsCollector.shared.markTTSRequested()
+        if usingAppleTTS {
+            ttsService.speakChunk(sentence)
+        } else {
+            KokoroTTSService.shared.speakChunk(sentence, voice: settingsManager.settings.kokoroVoice)
+        }
     }
 
     /// Speak AI response via TTS
     private func speakResponse(_ text: String) {
         guard !text.isEmpty else { return }
         recordAssistantReply(text)
+        // Perceived latency ends here: the gap between this and speechEnd is the wearer's wait.
+        // (An approximation — synthesis still has to start — but it is the moment we hand off,
+        // and the difference between Kokoro and Apple TTS shows up in `ttsLeadIn`.)
+        // Text is handed to an engine on the next line — TTFB clock starts now. The firstAudio
+        // mark comes from the engine itself when sound actually starts; marking it here excluded
+        // synthesis time, making TTS TTFB structurally zero and perceived latency optimistic.
+        MetricsCollector.shared.markTTSRequested()
         // Kokoro (on-device neural) when selected + ready; otherwise the Apple system voice.
         if settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady {
             Task { await KokoroTTSService.shared.speak(text, voice: settingsManager.settings.kokoroVoice) }

@@ -141,8 +141,142 @@ final class KokoroTTSService: ObservableObject {
 
     func stop() {
         isSpeaking = false          // breaks the per-sentence synthesis loop
+        streaming = false
+        streamStarted = false
+        utteranceCancelled = true   // in-flight synthesis discards its output
+        chunkQueue.removeAll()
         pendingBuffers = 0
         if audioReady { playerNode.stop() }
+    }
+
+    // MARK: - Streaming (speak sentences as the model produces them)
+
+    /// True between `beginStreaming()` and `endStreaming()`.
+    private var streaming = false
+    /// Whether any chunk has been enqueued in this streamed utterance — the first one restarts
+    /// the player to clear a previous reply, later ones append for gapless playback.
+    private var streamStarted = false
+    /// Sentences waiting to be synthesised, in arrival order. Drained by exactly ONE task:
+    /// callers previously spawned an independent Task per sentence, and those are unordered —
+    /// sentence 2 could synthesise and play before sentence 1, and concurrent calls raced the
+    /// `streamStarted` flag. A single drainer over a FIFO makes ordering structural.
+    private var chunkQueue: [(text: String, voice: String)] = []
+    private var drainTask: Task<Void, Never>?
+    /// Set by stop() so in-flight synthesis discards its output. This must NOT be inferred from
+    /// `streaming`/queue state: endStreaming() legitimately arrives while the FIRST sentence is
+    /// still synthesising (generation often finishes before synthesis under GPU contention), and
+    /// a state-based guard dropped that entire reply.
+    private var utteranceCancelled = false
+
+    /// True when nothing remains to synthesise OR play for the current utterance. `pendingBuffers`
+    /// alone is not enough: a sentence can still be in synthesis (queue drained of BUFFERS but not
+    /// of WORK), and clearing `isSpeaking` then would unpause the recognizer straight into the
+    /// reply's own upcoming audio.
+    private var outputDrained: Bool { chunkQueue.isEmpty && drainTask == nil && pendingBuffers <= 0 }
+
+    /// Open a streamed utterance.
+    ///
+    /// Kokoro is non-autoregressive (StyleTTS2 + ISTFTNet), so there is no partial audio for a
+    /// sentence still being synthesised — "streaming" here means the same thing every Kokoro
+    /// wrapper means: synthesise sentence-by-sentence and play each as it lands. `speak(_:voice:)`
+    /// already did that WITHIN a reply; what was missing is starting before the model has finished
+    /// writing the reply. Measured cost of waiting: ~1.2s per turn.
+    func beginStreaming() {
+        streaming = true
+        streamStarted = false
+        chunkQueue.removeAll()
+        utteranceCancelled = false
+        generationActive = true
+        isSpeaking = true          // pauses the recognizer for the whole utterance
+    }
+
+    /// Queue ONE completed sentence for synthesis. Safe to call repeatedly while the language
+    /// model is still generating; sentences play strictly in the order they were queued.
+    func speakChunk(_ sentence: String, voice: String) {
+        let clean = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, isModelReady, streaming else { return }
+        chunkQueue.append((clean, voice))
+        drainIfNeeded()
+    }
+
+    /// Start the single drainer if it isn't running. The class is @MainActor, so queue mutations
+    /// are serialised; the only suspension is the detached synthesis, during which new sentences
+    /// append behind the one in flight.
+    private func drainIfNeeded() {
+        guard drainTask == nil else { return }
+        drainTask = Task { [weak self] in
+            while let self, !self.chunkQueue.isEmpty {
+                let next = self.chunkQueue.removeFirst()
+                await self.synthesizeAndEnqueue(text: next.text, voice: next.voice)
+            }
+            guard let self else { return }
+            self.drainTask = nil
+            // endStreaming may have fired while we were synthesising the tail.
+            if !self.generationActive && self.outputDrained { self.isSpeaking = false }
+        }
+    }
+
+    private func synthesizeAndEnqueue(text: String, voice: String) async {
+        do {
+            let voiceArray = try await ensureVoice(voice)
+            let tts = try ensureEngine()
+            let language: Language = voice.first == "b" ? .enGB : .enUS
+            let samples: [Float] = try await Task.detached(priority: .userInitiated) {
+                let (audio, _) = try tts.generateAudio(voice: voiceArray, language: language, text: text)
+                return audio
+            }.value
+            guard !utteranceCancelled, !samples.isEmpty else { return }
+            enqueue(samples, restartPlayer: !streamStarted)
+            streamStarted = true
+        } catch {
+            NSLog("[OV] Kokoro speakChunk failed: %@", "\(error)")
+        }
+    }
+
+    /// Close the streamed utterance: no more sentences are coming, but anything already queued
+    /// still synthesises and plays. `isSpeaking` clears when output is fully drained — from the
+    /// buffer-completion callback, or from the drainer if it finishes last.
+    func endStreaming() {
+        streaming = false
+        generationActive = false
+        if outputDrained { isSpeaking = false }
+    }
+
+    /// Ambient narration (watch loop): speaks ONLY into silence and never preempts.
+    ///
+    /// `speak(_:voice:)` is for replies — it restarts the player, cutting whatever is playing.
+    /// A watch line doing that cut user replies off mid-sentence: the loop's guards passed while
+    /// nothing was speaking, then a reply began during the line's 1–3s of synthesis, and the
+    /// finished line stomped it. This path re-checks AFTER synthesis and drops itself if any real
+    /// speech (streamed or not) started meanwhile — a dropped narration line costs nothing; the
+    /// next scene change will describe again.
+    func speakAmbient(_ text: String, voice: String) async {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, isModelReady, !isSpeaking, !streaming else { return }
+        isSpeaking = true          // pause the recognizer while narration synthesises + plays
+        generationActive = true
+        // This is a NEW utterance we now own: a leftover cancel flag from a previous stop()
+        // would otherwise drop every ambient line until the next streamed reply reset it.
+        utteranceCancelled = false
+        defer {
+            generationActive = false
+            if outputDrained { isSpeaking = false }
+        }
+        do {
+            let voiceArray = try await ensureVoice(voice)
+            let tts = try ensureEngine()
+            let language: Language = voice.first == "b" ? .enGB : .enUS
+            let samples: [Float] = try await Task.detached(priority: .utility) {
+                let (audio, _) = try tts.generateAudio(voice: voiceArray, language: language, text: clean)
+                return audio
+            }.value
+            // A reply may have begun while we synthesised: beginStreaming sets `streaming`,
+            // speak() restarts the player (utteranceCancelled/stop covers that route). Drop.
+            guard isSpeaking, !streaming, !utteranceCancelled, !samples.isEmpty else { return }
+            enqueue(samples, restartPlayer: false)   // append into silence; NEVER stop the player
+        } catch {
+            NSLog("[OV] Kokoro speakAmbient failed: %@", "\(error)")
+        }
     }
 
     // MARK: - Playback (24 kHz mono float, sentence-queued)
@@ -188,12 +322,18 @@ final class KokoroTTSService: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     self.pendingBuffers -= 1
-                    if self.pendingBuffers <= 0 && !self.generationActive {
+                    if self.outputDrained && !self.generationActive {
                         self.isSpeaking = false
                     }
                 }
             }
             playerNode.play()
+            // Audio genuinely starts here (buffer scheduled + player running) — the counterpart
+            // of AVSpeechSynthesizer's didStart. Kokoro synthesis time is the whole reason this
+            // must NOT be marked at text hand-off: synthesis runs on the GPU alongside the model,
+            // and marking early hid exactly that cost from perceived latency and TTS TTFB.
+            // First-wins per turn; gated in the collector on the turn having requested TTS.
+            MetricsCollector.shared.markFirstAudio()
         } catch {
             NSLog("[OV] Kokoro playback failed: %@", "\(error)")
             isSpeaking = false

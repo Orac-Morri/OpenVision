@@ -116,6 +116,12 @@ struct SettingsView: View {
                         Label("My Documents", systemImage: "books.vertical")
                     }
 
+                    NavigationLink {
+                        TelemetrySettingsView()
+                    } label: {
+                        Label("Telemetry", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+
                     Toggle(isOn: $settingsManager.settings.autoReconnect) {
                         Label("Auto-Reconnect", systemImage: "arrow.triangle.2.circlepath")
                     }

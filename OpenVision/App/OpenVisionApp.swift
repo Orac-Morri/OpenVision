@@ -54,6 +54,11 @@ struct OpenVisionApp: App {
                 }
             }
             .preferredColorScheme(.dark)
+            .task {
+                // Telemetry settings persist, but the sink lives in memory — without this a
+                // relaunch (or a jetsam kill during a model switch) silently stopped pushing.
+                MetricsCollector.shared.restoreAtLaunch()
+            }
             .onOpenURL { url in
                 handleURL(url)
             }

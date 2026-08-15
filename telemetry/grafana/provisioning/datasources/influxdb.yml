@@ -1,0 +1,22 @@
+# Auto-wires the InfluxDB datasource so Grafana is usable the moment it starts.
+# Values must match docker-compose.yml.
+
+apiVersion: 1
+
+datasources:
+  - name: OpenVision
+    type: influxdb
+    # Fixed uid so the provisioned dashboard can reference this datasource deterministically.
+    uid: openvision-influx
+    access: proxy
+    # Flux, not InfluxQL: the app writes via the v2 /api/v2/write endpoint.
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: openvision
+      defaultBucket: metrics
+      tlsSkipVerify: true
+    secureJsonData:
+      token: openvision-dev-token
+    isDefault: true
+    editable: true

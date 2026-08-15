@@ -129,6 +129,17 @@ enum GemmaLocalModel: String, CaseIterable, Identifiable, Codable {
         self == .fastVLM05B
     }
 
+    /// Whether this model gets the short routing prompt.
+    ///
+    /// The verbose prompt (~6,850 chars, mostly worked examples) is re-prefilled every turn, and
+    /// prefill dominates latency: telemetry measured time-to-first-token at ~5s of a ~6.4s wait.
+    /// Those examples exist for 2B-class models that mis-route without them; Bonsai is a Qwen3-8B
+    /// base and should generalise from the rules alone. Opt models in only after checking routing
+    /// still holds on device — a wrong route is far worse than a slow one.
+    var prefersConcisePrompt: Bool {
+        self == .bonsai8B
+    }
+
     static func from(modelId: String) -> GemmaLocalModel {
         allCases.first { $0.modelId == modelId } ?? .e2b
     }
@@ -169,6 +180,10 @@ final class GemmaLocalService: ObservableObject {
 
     private var modelContainer: ModelContainer?
     private var loadedModelId: String?
+
+    /// The model currently loaded in memory, or nil when none is. Distinct from the *selected*
+    /// model in settings — telemetry must report what actually served a turn, not what is picked.
+    var activeModelId: String? { loadedModelId }
 
     /// True when the loaded model can take photos on-device (currently SmolVLM2 only).
     /// Unknown model ids resolve to .e2b in from(modelId:), which is vision-disabled — safe.
@@ -443,6 +458,7 @@ final class GemmaLocalService: ObservableObject {
             print("[GemmaLocal] releasing previous model (\(loadedModelId ?? "?")) before load")
             modelContainer = nil
             loadedModelId = nil
+            invalidateRoutingCache()   // KV cache belongs to the unloaded model
             isModelLoaded = false
         }
 
@@ -482,6 +498,7 @@ final class GemmaLocalService: ObservableObject {
     func disconnect() async {
         modelContainer = nil
         loadedModelId = nil
+        invalidateRoutingCache()   // KV cache belongs to the unloaded model
         isModelLoaded = false
         isProcessing = false
         setState(.disconnected)
@@ -684,6 +701,7 @@ final class GemmaLocalService: ObservableObject {
         if loadedModelId == modelId || loadedModelId == nil {
             modelContainer = nil
             loadedModelId = nil
+            invalidateRoutingCache()   // KV cache belongs to the unloaded model
             isModelLoaded = false
             Memory.clearCache()
             setState(.disconnected)
@@ -810,6 +828,10 @@ final class GemmaLocalService: ObservableObject {
 
         var full = ""
         var tokenCount = 0
+        // Exact stats from the library's own completion event: `.info` carries the true token-id
+        // count and decode time. Chunk counting is NOT a token count (one chunk can detokenize
+        // several tokens), so it only ever produced an approximate tok/s.
+        var completion: GenerateCompletionInfo?
         // Drive the iterator manually so we can bail BEFORE requesting the next token (i.e.
         // before MLX submits the next Metal command buffer) when the app is backgrounded.
         var iterator = stream.makeAsyncIterator()
@@ -820,15 +842,35 @@ final class GemmaLocalService: ObservableObject {
                 break
             }
             guard let item = await iterator.next() else { break }
-            if case .chunk(let piece) = item {
+            switch item {
+            case .chunk(let piece):
                 full += piece
                 tokenCount += 1
-                if tokenCount == 1 { NSLog("[OV] GemmaLocal: first token received") }
+                if tokenCount == 1 {
+                    NSLog("[OV] GemmaLocal: first token received")
+                    // Independent of any listener — see the note in cachedGenerate.
+                    await MainActor.run { MetricsCollector.shared.markFirstToken() }
+                }
                 let snapshot = full
                 await MainActor.run { self.onPartialResponse?(snapshot) }
+            case .info(let info):
+                completion = info
+            default:
+                break
             }
         }
         NSLog("[OV] GemmaLocal: generation done — %d chunks, %d chars", tokenCount, full.count)
+
+        // Exact when the stream completed; an aborted generation (backgrounded/cancelled) never
+        // yields `.info`, and no rate is better than a fabricated one — the stage timestamps are
+        // still marked so the turn's breakdown stays complete.
+        let stats = completion
+        await MainActor.run {
+            MetricsCollector.shared.markGenerationDone(
+                tokenCount: stats?.generationTokenCount,
+                duration: stats?.generateTime
+            )
+        }
 
         // Release the MLX buffer cache so vision memory doesn't pile up toward the jetsam limit.
         Memory.clearCache()
@@ -845,6 +887,46 @@ final class GemmaLocalService: ObservableObject {
     func interrupt() {
         cancelRequested = true
         setProcessing(false)
+    }
+
+    // MARK: - Continuous live vision (watch loop)
+
+    /// One frame → one short description. Built for the continuous watch loop, so it deliberately
+    /// bypasses everything `sendMessage` does around a real turn: no conversation history, no
+    /// onAgentMessage/TTS callbacks, and NO MetricsCollector marks — the loop runs between user
+    /// turns, and its inferences stamping a dangling turn's timeline would corrupt turn metrics.
+    /// Frame pacing is observed via the counted watch_* events instead.
+    ///
+    /// maxTokens is capped hard: telemetry showed command replies averaging ~90 tokens at 5-8
+    /// tok/s under TTS contention — a paragraph per glance is what made the old behaviour describe
+    /// a scene the wearer had already left.
+    func describeFrame(_ jpeg: Data, prompt: String, maxTokens: Int = 30) async throws -> String {
+        guard let container = modelContainer, visionReady else { throw GemmaLocalError.modelNotLoaded }
+        guard UIApplication.shared.applicationState != .background else { throw GemmaLocalError.backgrounded }
+        guard let ciImage = CIImage(data: jpeg) else { throw GemmaLocalError.badFrame }
+        // Same image handling as sendMessage: FastVLM at native resolution (its FastViTHD encoder
+        // is built for it), everything else bounded to 512 to keep encoder memory in check.
+        let isFastVLM = loadedModelId.map { GemmaLocalModel.from(modelId: $0).isFastVLM } ?? false
+        let resize: CGSize? = isFastVLM ? nil : CGSize(width: 512, height: 512)
+        let userInput = UserInput(
+            chat: [
+                .init(role: .system, content: "You describe the wearer's camera view. Answer in ONE short sentence, no preamble. Describe only what is clearly visible; if unsure, say so briefly rather than guessing."),
+                .init(role: .user, content: prompt, images: [.ciImage(ciImage)])
+            ],
+            processing: .init(resize: resize)
+        )
+        let stream = try await container.perform { (context: ModelContext) in
+            let lmInput = try await context.processor.prepare(input: userInput)
+            let params = GenerateParameters(maxTokens: maxTokens, temperature: 0.2)
+            return try MLXLMCommon.generate(input: lmInput, parameters: params, context: context)
+        }
+        var full = ""
+        for await item in stream {
+            if case .chunk(let piece) = item { full += piece }
+        }
+        // Same jetsam hygiene as every other generate: vision encoders leave MLX buffers behind.
+        Memory.clearCache()
+        return full.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Agentic intent routing (shared logic lives in LocalAgent)
@@ -892,18 +974,129 @@ final class GemmaLocalService: ObservableObject {
 
     typealias RouteResult = LocalAgent.RouteResult
 
+    // MARK: - KV prefix cache
+
+    /// A `ChatSession` kept alive across turns so the routing prompt is prefilled ONCE.
+    ///
+    /// Telemetry showed prompt prefill dominating on-device latency — ~3s of a ~3.4s wait even
+    /// after halving the prompt — because the whole system prompt was re-processed every turn.
+    /// `ChatSession` retains its KV cache between `respond` calls, so the stable prefix is paid
+    /// for once and conversation history accumulates incrementally instead of being re-prefilled.
+    private var routingSession: ChatSession?
+    /// What `routingSession` was built for. Any change (model switch, verbose↔concise, a prompt
+    /// edit) must invalidate it — reusing a cache built from different tokens produces coherent-
+    /// looking but wrong output, which is far harder to notice than a crash.
+    private var routingSessionKey: String?
+
+    /// Drop the cached session. Call when the model unloads or the conversation resets.
+    func invalidateRoutingCache() {
+        routingSession = nil
+        routingSessionKey = nil
+    }
+
+    /// Generate with the KV prefix cache, creating or reusing a session as needed.
+    ///
+    /// - Parameters:
+    ///   - prompt: split prompt; only `stable` is cached, `perTurn` rides with the user message.
+    ///   - history: seeds a NEWLY created session so follow-ups still work after a model switch
+    ///     or app restart. Ignored once the session exists — by then its cache holds the history.
+    ///   - user: this turn's text.
+    ///   - onPartial: cumulative output callback for streamed speech.
+    private func cachedGenerate(prompt: LocalAgent.Prompt,
+                                history: [ConversationContext.Turn],
+                                user: String,
+                                onPartial: ((String) -> Void)? = nil) async throws -> String {
+        let entryAt = Date()
+        guard let container = modelContainer else { throw GemmaLocalError.modelNotLoaded }
+        guard UIApplication.shared.applicationState != .background else { throw GemmaLocalError.backgrounded }
+
+        let key = (loadedModelId ?? "") + "\u{1}" + prompt.stable
+        var seededHistory = false
+        if routingSessionKey != key || routingSession == nil {
+            routingSession = ChatSession(
+                container,
+                instructions: prompt.stable,
+                generateParameters: GenerateParameters(maxTokens: 200, temperature: 0.3)
+            )
+            routingSessionKey = key
+            seededHistory = true
+            NSLog("[OV] GemmaLocal: new routing session (prefix will be prefilled once)")
+        }
+        guard let session = routingSession else { throw GemmaLocalError.modelNotLoaded }
+
+        // Fresh session: fold prior turns into the first message so "what were we talking about?"
+        // still resolves. Afterwards the session's own cache is the record.
+        var message = ""
+        if seededHistory, !history.isEmpty {
+            let transcript = history
+                .map { "\($0.role == "assistant" ? "Assistant" : "User"): \($0.content)" }
+                .joined(separator: "\n")
+            message += "Earlier in this conversation:\n\(transcript)\n\n"
+        }
+        if !prompt.perTurn.isEmpty { message += prompt.perTurn + "\n\n" }
+        message += user
+
+        // Sub-stage timing inside commit→first-token. KV caching removed the repeated prompt
+        // prefill but barely moved ttft, so the cost is elsewhere in here — measure, don't guess.
+        let genStart = Date()
+        NSLog("[OV] ttft breakdown: setup before generate %.3fs", genStart.timeIntervalSince(entryAt))
+        var firstChunkAt: Date?
+
+        var full = ""
+        // streamDetails (not streamResponse) so the library's `.info` completion event arrives:
+        // it carries the exact token-id count and decode time. Chunk counting is not a token
+        // count — one chunk can detokenize several tokens — and timeline-delta rates paired
+        // mismatched windows. `.info` is the ground truth for tok/s.
+        var completion: GenerateCompletionInfo?
+        for try await item in session.streamDetails(to: message) {
+            switch item {
+            case .chunk(let chunk):
+                if firstChunkAt == nil {
+                    firstChunkAt = Date()
+                    // Mark first token HERE, not from the onPartial callback. Generation is streamed
+                    // internally either way, but onPartial is only supplied when the caller wants to
+                    // speak mid-generation (Apple TTS). With Kokoro there is no callback, so the mark
+                    // never fired: firstTokenAt got backfilled to generation-done, collapsing
+                    // generation_s to ~0 and suppressing tok/s entirely — while the same time
+                    // silently inflated ttft. The measurement changed, not the work.
+                    await MainActor.run { MetricsCollector.shared.markFirstToken() }
+                    NSLog("[OV] ttft breakdown: session→first chunk %.3fs (session %@, history seeded %@, message %d chars)",
+                          Date().timeIntervalSince(genStart),
+                          seededHistory ? "NEW" : "reused",
+                          seededHistory ? "yes" : "no",
+                          message.count)
+                }
+                full += chunk
+                if let onPartial {
+                    let snapshot = full
+                    await MainActor.run { onPartial(snapshot) }
+                }
+            case .info(let info):
+                completion = info
+            default:
+                break
+            }
+        }
+
+        let stats = completion
+        await MainActor.run {
+            MetricsCollector.shared.markGenerationDone(
+                tokenCount: stats?.generationTokenCount,
+                duration: stats?.generateTime
+            )
+        }
+        return full
+    }
+
     /// ONE generation that either routes a face command, requests a web search, or answers. Delegates
     /// the prompt/parsing to LocalAgent (shared with the Apple Foundation backend).
     func routeCommand(_ command: String) async -> RouteResult {
         let history = ConversationContext.shared.turns
-        return await LocalAgent.route(command, history: history) { [weak self] system, hist, user in
+        let detail: LocalAgent.PromptDetail =
+            GemmaLocalModel.from(modelId: loadedModelId ?? "").prefersConcisePrompt ? .concise : .verbose
+        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] prompt, hist, user in
             guard let self else { return nil }
-            var messages: [Chat.Message] = [.init(role: .system, content: system)]
-            for turn in hist {
-                messages.append(.init(role: turn.role == "assistant" ? .assistant : .user, content: turn.content))
-            }
-            messages.append(.init(role: .user, content: user))
-            return try? await self.rawGenerate(messages: messages, maxTokens: 200, temperature: 0.3)
+            return try? await self.cachedGenerate(prompt: prompt, history: hist, user: user)
         }
     }
 
@@ -912,14 +1105,12 @@ final class GemmaLocalService: ObservableObject {
     /// object beginning with "{"; the caller withholds speech until it sees the output isn't JSON.
     func routeCommandStreaming(_ command: String, onPartial: @escaping (String) -> Void) async -> RouteResult {
         let history = ConversationContext.shared.turns
-        return await LocalAgent.route(command, history: history) { [weak self] system, hist, user in
+        let detail: LocalAgent.PromptDetail =
+            GemmaLocalModel.from(modelId: loadedModelId ?? "").prefersConcisePrompt ? .concise : .verbose
+        return await LocalAgent.route(command, history: history, detail: detail) { [weak self] prompt, hist, user in
             guard let self else { return nil }
-            var messages: [Chat.Message] = [.init(role: .system, content: system)]
-            for turn in hist {
-                messages.append(.init(role: turn.role == "assistant" ? .assistant : .user, content: turn.content))
-            }
-            messages.append(.init(role: .user, content: user))
-            return try? await self.rawGenerate(messages: messages, maxTokens: 200, temperature: 0.3, onPartial: onPartial)
+            return try? await self.cachedGenerate(prompt: prompt, history: hist, user: user,
+                                                  onPartial: onPartial)
         }
     }
 
@@ -933,10 +1124,10 @@ final class GemmaLocalService: ObservableObject {
 
     /// Phrase a concise spoken answer to `question` using a web-search `result`.
     func answerWithSearchResult(question: String, result: String) async -> String {
-        await LocalAgent.answerWithSearchResult(question: question, result: result) { [weak self] system, _, user in
+        await LocalAgent.answerWithSearchResult(question: question, result: result) { [weak self] prompt, _, user in
             guard let self else { return nil }
             return try? await self.rawGenerate(messages: [
-                .init(role: .system, content: system),
+                .init(role: .system, content: prompt.combined),
                 .init(role: .user, content: user)
             ], maxTokens: 200, temperature: 0.4)
         }
@@ -955,16 +1146,41 @@ final class GemmaLocalService: ObservableObject {
             return try MLXLMCommon.generate(input: lmInput, parameters: params, context: context)
         }
         var full = ""
+        var chunkCount = 0
+        var completion: GenerateCompletionInfo?
         for await item in stream {
-            if case .chunk(let piece) = item {
+            switch item {
+            case .chunk(let piece):
                 full += piece
+                chunkCount += 1
+                if chunkCount == 1 {
+                    // NOTE: an earlier commit claimed this mark existed here; it did not — only
+                    // sendMessage and cachedGenerate had it. Without it, rawGenerate turns
+                    // (search answers, reformulation) backfilled firstToken to generation-done.
+                    await MainActor.run { MetricsCollector.shared.markFirstToken() }
+                }
                 if let onPartial {
                     let snapshot = full
                     await MainActor.run { onPartial(snapshot) }
                 }
+            case .info(let info):
+                completion = info
+            default:
+                break
             }
         }
         Memory.clearCache()
+
+        // Telemetry: this is a generation path in its own right (search answers, reformulation),
+        // so its exact stats must be reported too — the collector ACCUMULATES across passes, so
+        // a route pass plus an answer pass sum into one consistent tok/s for the turn.
+        let stats = completion
+        await MainActor.run {
+            MetricsCollector.shared.markGenerationDone(
+                tokenCount: stats?.generationTokenCount,
+                duration: stats?.generateTime
+            )
+        }
         return full
     }
 
@@ -982,12 +1198,15 @@ final class GemmaLocalService: ObservableObject {
     enum GemmaLocalError: LocalizedError {
         case modelNotLoaded
         case backgrounded
+        case badFrame
         var errorDescription: String? {
             switch self {
             case .modelNotLoaded:
                 return "The local Gemma model isn't loaded. Download it in Settings → AI Backend → Local (Gemma 4)."
             case .backgrounded:
                 return "On-device AI can't run while the app is in the background. Bring OpenVision to the foreground."
+            case .badFrame:
+                return "The camera frame couldn't be decoded."
             }
         }
     }
