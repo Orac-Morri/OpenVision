@@ -900,32 +900,46 @@ final class GemmaLocalService: ObservableObject {
     /// maxTokens is capped hard: telemetry showed command replies averaging ~90 tokens at 5-8
     /// tok/s under TTS contention — a paragraph per glance is what made the old behaviour describe
     /// a scene the wearer had already left.
-    func describeFrame(_ jpeg: Data, prompt: String, maxTokens: Int = 30) async throws -> String {
+    func describeFrame(_ jpeg: Data, prompt: String, maxTokens: Int = 40) async throws -> String {
         guard let container = modelContainer, visionReady else { throw GemmaLocalError.modelNotLoaded }
         guard UIApplication.shared.applicationState != .background else { throw GemmaLocalError.backgrounded }
         guard let ciImage = CIImage(data: jpeg) else { throw GemmaLocalError.badFrame }
-        // Same image handling as sendMessage: FastVLM at native resolution (its FastViTHD encoder
-        // is built for it), everything else bounded to 512 to keep encoder memory in check.
-        let isFastVLM = loadedModelId.map { GemmaLocalModel.from(modelId: $0).isFastVLM } ?? false
-        let resize: CGSize? = isFastVLM ? nil : CGSize(width: 512, height: 512)
+        // Watch frames are ALWAYS bounded to 512 — including FastVLM, which sendMessage keeps at
+        // native resolution. Native res is right when the user asked a question about detail; a
+        // one-line ambient caption doesn't need it, and encode cost scales with resolution.
+        // (Apple's own FastVLM live-captioning demo runs continuous captions with a short-output
+        // prompt rather than high-res input.)
         let userInput = UserInput(
             chat: [
-                .init(role: .system, content: "You describe the wearer's camera view. Answer in ONE short sentence, no preamble. Describe only what is clearly visible; if unsure, say so briefly rather than guessing."),
-                .init(role: .user, content: prompt, images: [.ciImage(ciImage)])
+                // Prompt style borrowed from Apple's demo: brevity by INSTRUCTION ("about 15
+                // words") rather than only by token cap — the model plans a short sentence
+                // instead of getting truncated mid-thought.
+                .init(role: .user, content: prompt + " Output should be brief, about 15 words or less. Only describe what is clearly visible.",
+                      images: [.ciImage(ciImage)])
             ],
-            processing: .init(resize: resize)
+            processing: .init(resize: CGSize(width: 512, height: 512))
         )
         let stream = try await container.perform { (context: ModelContext) in
             let lmInput = try await context.processor.prepare(input: userInput)
-            let params = GenerateParameters(maxTokens: maxTokens, temperature: 0.2)
+            // temperature 0 (also per Apple's demo): deterministic captions mean the same scene
+            // yields the same words, which is exactly what the chatter gate needs — rephrase
+            // noise was what kept re-announcing unchanged scenes.
+            let params = GenerateParameters(maxTokens: maxTokens, temperature: 0.0)
             return try MLXLMCommon.generate(input: lmInput, parameters: params, context: context)
         }
         var full = ""
-        for await item in stream {
+        var iterator = stream.makeAsyncIterator()
+        while let item = await iterator.next() {
+            // Cancellable mid-generation (Apple demo pattern): when a user question arrives, the
+            // watch task is cancelled and this bails before requesting the next token — freeing
+            // the GPU within one decode step instead of making the question queue ~4s behind an
+            // ambient caption nobody asked for.
+            if Task.isCancelled { break }
             if case .chunk(let piece) = item { full += piece }
         }
         // Same jetsam hygiene as every other generate: vision encoders leave MLX buffers behind.
         Memory.clearCache()
+        if Task.isCancelled { throw CancellationError() }
         return full.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

@@ -572,6 +572,10 @@ final class VoiceAgentViewModel: ObservableObject {
             self.userTranscript = command
             // Suspend ambient narration for the WHOLE turn (through reply playback).
             self.commandTurnActive = true
+            // And CANCEL any in-flight ambient inference right now — describeFrame checks
+            // Task.isCancelled per token, so the GPU frees within one decode step instead of
+            // the question queueing ~4s behind a caption nobody asked for.
+            if self.watchTask != nil { self.startWatchLoop() }
 
             // Telemetry: the turn is now the backend's problem — everything after this is
             // think time, and everything before it was endpointing.
@@ -1092,6 +1096,24 @@ final class VoiceAgentViewModel: ObservableObject {
             speakResponse(turningOff ? "Okay, I'll watch quietly." : "Okay, I'll describe what I see as you go.")
             return
         }
+        // Generic "what do you see"-type questions get an INSTANT answer from the watch loop's
+        // fresh context — no new inference, no frame grab. This is the payoff of continuous
+        // perception: the answer was computed before the question. Specific questions (colors,
+        // text, counting, "is there a…") still run a real vision turn on the current frame.
+        // Deterministic phrase check, per the standing small-model-routing lesson.
+        let genericLook = ["what do you see", "what's in front", "what is in front",
+                           "describe what you see", "what am i looking at", "describe the view",
+                           "describe the scene"]
+        let lowered = command.lowercased()
+        if let latest = watchLatestDescription,
+           Date().timeIntervalSince(latest.at) < 10,
+           genericLook.contains(where: { lowered.contains($0) }) {
+            NSLog("[OV] live: instant answer from watch cache (%.1fs old)", Date().timeIntervalSince(latest.at))
+            speakResponse(latest.text)
+            if isLiveVideoMode { agentState = .liveVideo }
+            return
+        }
+
         agentState = .thinking
         // Let head motion settle and grab the freshest frame, so we describe the CURRENT view
         // rather than a stale/motion-blurred one the Bluetooth stream delivered a beat ago.
@@ -1120,6 +1142,14 @@ final class VoiceAgentViewModel: ObservableObject {
             if let latest = watchLatestDescription, Date().timeIntervalSince(latest.at) < 20 {
                 prompt += "\n(Your own view a moment ago: \(latest.text))"
             }
+            // Rolling memory: the two scenes before that, so questions about something the
+            // wearer JUST looked away from still have a referent. Capped to bound tokens.
+            let older = watchRecentDescriptions.dropLast().suffix(2)
+                .filter { Date().timeIntervalSince($0.at) < 90 }
+            if !older.isEmpty {
+                let lines = older.map { "- \($0.text)" }.joined(separator: "\n")
+                prompt += "\n(Views shortly before that:\n\(lines))"
+            }
             try await GemmaLocalService.shared.sendMessage(prompt, imageData: jpeg)
         } catch {
             print("[VoiceAgent] Local live video inference failed: \(error)")
@@ -1147,6 +1177,12 @@ final class VoiceAgentViewModel: ObservableObject {
     /// Freshest description of the current view + when it was made. This is the loop's real
     /// product: silent visual context, kept warm so questions can be grounded instantly.
     private(set) var watchLatestDescription: (text: String, at: Date)?
+    /// Rolling memory of recent scene descriptions (newest last, capped). The streaming-video-LLM
+    /// literature converges on "treat video as a stream with memory, not independent photos" —
+    /// this is the same idea in text space, at ~zero cost: questions get the last minute of what
+    /// the assistant saw, so "what was that thing on the shelf?" can work after a head-turn.
+    private var watchRecentDescriptions: [(text: String, at: Date)] = []
+    private static let watchMemoryLimit = 5
     /// Whether the loop SPEAKS what it sees. OFF by default — this is how Gemini Live and
     /// ChatGPT video behave: continuous perception, but the assistant only talks when asked.
     /// The first cut narrated every scene change and it was noise ("even if I don't ask it's
@@ -1250,7 +1286,12 @@ final class VoiceAgentViewModel: ObservableObject {
                     //     old point-checks missed — this is what cut replies mid-sentence).
                     // speakWatchLine itself is ambient: appends into silence, never preempts.
                     if !description.isEmpty {
-                        self.watchLatestDescription = (description, Date())
+                        let entry = (description, Date())
+                        self.watchLatestDescription = entry
+                        self.watchRecentDescriptions.append(entry)
+                        if self.watchRecentDescriptions.count > Self.watchMemoryLimit {
+                            self.watchRecentDescriptions.removeFirst()
+                        }
                         self.aiTranscript = description   // silent context still shows on screen
                     }
                     let sceneMovedOn = self.watchLastSpokenThumb.map {
@@ -1286,6 +1327,7 @@ final class VoiceAgentViewModel: ObservableObject {
         watchPrevPollThumb = nil
         watchLastDescribeEnd = .distantPast
         watchLatestDescription = nil
+        watchRecentDescriptions.removeAll()
         watchNarrationEnabled = false
     }
 
