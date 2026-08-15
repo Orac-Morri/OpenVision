@@ -509,9 +509,18 @@ final class VoiceAgentViewModel: ObservableObject {
     private func setupVoiceCommandService() {
         print("[VoiceAgent] Setting up voice command callbacks")
 
-        // Allow wake word to interrupt TTS (for "ok vision stop")
+        // Interruptible whenever the assistant holds the floor. This gate exists to stop the
+        // reply's own audio (heard through the mic) from false-triggering the wake word — so it
+        // must be true exactly when the assistant is producing output:
+        //  - a reply speaking on EITHER engine. Checking only Apple TTS left barge-in dead for
+        //    every Kokoro user: "Ok Vision stop" did nothing while Kokoro spoke.
+        //  - generation still thinking: no reply audio exists yet, so a wake word heard then is
+        //    genuinely the user — and it's the only way to cancel a long generation by voice.
         voiceCommandService.shouldAllowInterrupt = { [weak self] in
-            self?.ttsService.isSpeaking ?? false
+            guard let self else { return false }
+            return self.ttsService.isSpeaking
+                || KokoroTTSService.shared.isSpeaking
+                || self.agentState == .thinking
         }
 
         // Wake word detected
