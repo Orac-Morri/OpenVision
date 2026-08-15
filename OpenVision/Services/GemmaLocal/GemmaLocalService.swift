@@ -828,6 +828,10 @@ final class GemmaLocalService: ObservableObject {
 
         var full = ""
         var tokenCount = 0
+        // Exact stats from the library's own completion event: `.info` carries the true token-id
+        // count and decode time. Chunk counting is NOT a token count (one chunk can detokenize
+        // several tokens), so it only ever produced an approximate tok/s.
+        var completion: GenerateCompletionInfo?
         // Drive the iterator manually so we can bail BEFORE requesting the next token (i.e.
         // before MLX submits the next Metal command buffer) when the app is backgrounded.
         var iterator = stream.makeAsyncIterator()
@@ -838,7 +842,8 @@ final class GemmaLocalService: ObservableObject {
                 break
             }
             guard let item = await iterator.next() else { break }
-            if case .chunk(let piece) = item {
+            switch item {
+            case .chunk(let piece):
                 full += piece
                 tokenCount += 1
                 if tokenCount == 1 {
@@ -848,14 +853,23 @@ final class GemmaLocalService: ObservableObject {
                 }
                 let snapshot = full
                 await MainActor.run { self.onPartialResponse?(snapshot) }
+            case .info(let info):
+                completion = info
+            default:
+                break
             }
         }
         NSLog("[OV] GemmaLocal: generation done — %d chunks, %d chars", tokenCount, full.count)
 
-        // Telemetry: chunks are the decode steps MLX emitted, which is what tok/s should measure.
-        let generatedChunks = tokenCount
+        // Exact when the stream completed; an aborted generation (backgrounded/cancelled) never
+        // yields `.info`, and no rate is better than a fabricated one — the stage timestamps are
+        // still marked so the turn's breakdown stays complete.
+        let stats = completion
         await MainActor.run {
-            MetricsCollector.shared.markGenerationDone(tokenCount: generatedChunks)
+            MetricsCollector.shared.markGenerationDone(
+                tokenCount: stats?.generationTokenCount,
+                duration: stats?.generateTime
+            )
         }
 
         // Release the MLX buffer cache so vision memory doesn't pile up toward the jetsam limit.
@@ -989,34 +1003,47 @@ final class GemmaLocalService: ObservableObject {
         var firstChunkAt: Date?
 
         var full = ""
-        var chunkCount = 0
-        for try await chunk in session.streamResponse(to: message) {
-            if firstChunkAt == nil {
-                firstChunkAt = Date()
-                // Mark first token HERE, not from the onPartial callback. Generation is streamed
-                // internally either way, but onPartial is only supplied when the caller wants to
-                // speak mid-generation (Apple TTS). With Kokoro there is no callback, so the mark
-                // never fired: firstTokenAt got backfilled to generation-done, collapsing
-                // generation_s to ~0 and suppressing tok/s entirely — while the same time
-                // silently inflated ttft. The measurement changed, not the work.
-                await MainActor.run { MetricsCollector.shared.markFirstToken() }
-                NSLog("[OV] ttft breakdown: session→first chunk %.3fs (session %@, history seeded %@, message %d chars)",
-                      Date().timeIntervalSince(genStart),
-                      seededHistory ? "NEW" : "reused",
-                      seededHistory ? "yes" : "no",
-                      message.count)
-            }
-            full += chunk
-            chunkCount += 1
-            if let onPartial {
-                let snapshot = full
-                await MainActor.run { onPartial(snapshot) }
+        // streamDetails (not streamResponse) so the library's `.info` completion event arrives:
+        // it carries the exact token-id count and decode time. Chunk counting is not a token
+        // count — one chunk can detokenize several tokens — and timeline-delta rates paired
+        // mismatched windows. `.info` is the ground truth for tok/s.
+        var completion: GenerateCompletionInfo?
+        for try await item in session.streamDetails(to: message) {
+            switch item {
+            case .chunk(let chunk):
+                if firstChunkAt == nil {
+                    firstChunkAt = Date()
+                    // Mark first token HERE, not from the onPartial callback. Generation is streamed
+                    // internally either way, but onPartial is only supplied when the caller wants to
+                    // speak mid-generation (Apple TTS). With Kokoro there is no callback, so the mark
+                    // never fired: firstTokenAt got backfilled to generation-done, collapsing
+                    // generation_s to ~0 and suppressing tok/s entirely — while the same time
+                    // silently inflated ttft. The measurement changed, not the work.
+                    await MainActor.run { MetricsCollector.shared.markFirstToken() }
+                    NSLog("[OV] ttft breakdown: session→first chunk %.3fs (session %@, history seeded %@, message %d chars)",
+                          Date().timeIntervalSince(genStart),
+                          seededHistory ? "NEW" : "reused",
+                          seededHistory ? "yes" : "no",
+                          message.count)
+                }
+                full += chunk
+                if let onPartial {
+                    let snapshot = full
+                    await MainActor.run { onPartial(snapshot) }
+                }
+            case .info(let info):
+                completion = info
+            default:
+                break
             }
         }
 
-        let generatedChunks = chunkCount
+        let stats = completion
         await MainActor.run {
-            MetricsCollector.shared.markGenerationDone(tokenCount: generatedChunks)
+            MetricsCollector.shared.markGenerationDone(
+                tokenCount: stats?.generationTokenCount,
+                duration: stats?.generateTime
+            )
         }
         return full
     }
@@ -1080,24 +1107,39 @@ final class GemmaLocalService: ObservableObject {
         }
         var full = ""
         var chunkCount = 0
+        var completion: GenerateCompletionInfo?
         for await item in stream {
-            if case .chunk(let piece) = item {
+            switch item {
+            case .chunk(let piece):
                 full += piece
                 chunkCount += 1
+                if chunkCount == 1 {
+                    // NOTE: an earlier commit claimed this mark existed here; it did not — only
+                    // sendMessage and cachedGenerate had it. Without it, rawGenerate turns
+                    // (search answers, reformulation) backfilled firstToken to generation-done.
+                    await MainActor.run { MetricsCollector.shared.markFirstToken() }
+                }
                 if let onPartial {
                     let snapshot = full
                     await MainActor.run { onPartial(snapshot) }
                 }
+            case .info(let info):
+                completion = info
+            default:
+                break
             }
         }
         Memory.clearCache()
 
-        // Telemetry: this is the generation path LocalAgent's routing actually uses (sendMessage
-        // is a different entry point), so tok/s has to be reported from here too — otherwise the
-        // rate is missing for every routed command, which is most of them.
-        let generatedChunks = chunkCount
+        // Telemetry: this is a generation path in its own right (search answers, reformulation),
+        // so its exact stats must be reported too — the collector ACCUMULATES across passes, so
+        // a route pass plus an answer pass sum into one consistent tok/s for the turn.
+        let stats = completion
         await MainActor.run {
-            MetricsCollector.shared.markGenerationDone(tokenCount: generatedChunks)
+            MetricsCollector.shared.markGenerationDone(
+                tokenCount: stats?.generationTokenCount,
+                duration: stats?.generateTime
+            )
         }
         return full
     }

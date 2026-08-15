@@ -437,6 +437,12 @@ final class VoiceAgentViewModel: ObservableObject {
     /// quiet back to wake-word listening. The recognizer buffer is already reset by
     /// VoiceCommandService (so the stale transcript can't re-fire); here we just halt + end the turn.
     private func performFullStop() {
+        // "Ok Vision stop" is an interruption too: the user cut the reply off. Close the turn
+        // deterministically before stopping the engines — delivered-then-stopped turns finish
+        // here (markSpokeDone is gated on firstAudio); a stop mid-thinking leaves the turn open
+        // to be recorded as failed by the next beginTurn.
+        MetricsCollector.shared.markInterrupted()
+        MetricsCollector.shared.markSpokeDone()
         ttsService.stop()
         KokoroTTSService.shared.stop()
         audioPlayback.stop()
@@ -517,6 +523,11 @@ final class VoiceAgentViewModel: ObservableObject {
                 print("[VoiceAgent] Stopping TTS due to wake word interrupt")
                 // Also an interruption: the user said the wake word over a reply in progress.
                 MetricsCollector.shared.markInterrupted()
+                // Close the turn NOW, deterministically: delivered-then-cut-off turns finish
+                // here (markSpokeDone is gated on firstAudio); pre-audio ones stay open and are
+                // recorded as failed by the next beginTurn. Leaving this to the engine's async
+                // speaking-changed callback raced the next turn's speechEnd.
+                MetricsCollector.shared.markSpokeDone()
                 self.ttsService.stop()
                 self.ttsStreaming = false   // keep flag in sync with the cleared stream
                 KokoroTTSService.shared.stop()
@@ -742,6 +753,10 @@ final class VoiceAgentViewModel: ObservableObject {
 
         GeminiLiveService.shared.onTurnComplete = { [weak self] in
             guard let self else { return }
+            // Cloud live turns can only be COUNTED: the server does VAD, so the client never
+            // sees when the user stopped speaking and a perceived-latency figure would be
+            // fabricated. Counting keeps live-mode usage visible without inventing numbers.
+            MetricsCollector.shared.count("live_turn_gemini")
             self.agentState = self.isSessionActive ? .listening : .idle
             self.voiceCommandService.enterConversationMode()
             // History: persist this Gemini Live exchange (transcript only, no frames).
@@ -1055,8 +1070,18 @@ final class VoiceAgentViewModel: ObservableObject {
         agentState = .thinking
         // Let head motion settle and grab the freshest frame, so we describe the CURRENT view
         // rather than a stale/motion-blurred one the Bluetooth stream delivered a beat ago.
-        guard let frame = await freshestGlassesFrame(settle: 0.3, maxWait: 1.0),
+        //
+        // Timed for telemetry: this wait sits between commit and first token, so a vision turn's
+        // ttft INCLUDES it (up to ~1.3s). Recording frame_grab_s separately stops that time
+        // being misread as the model thinking.
+        let frameGrabStart = Date()
+        let grabbed = await freshestGlassesFrame(settle: 0.3, maxWait: 1.0)
+        MetricsCollector.shared.markFrameGrab(seconds: Date().timeIntervalSince(frameGrabStart))
+        guard let frame = grabbed,
               let jpeg = frame.jpegData(compressionQuality: 0.6) else {
+            // Counted so a flaky glasses stream is visible in the events panel; the spoken
+            // apology still counts as a delivered reply (success = delivered, not correct).
+            MetricsCollector.shared.count("live_frame_unavailable")
             speakResponse("I couldn't get a clear view just now — hold still a second and ask again.")
             agentState = .liveVideo
             return
@@ -1183,8 +1208,13 @@ final class VoiceAgentViewModel: ObservableObject {
         }
 
         // Turn complete
+        let liveTurnEvent = service === geminiLive ? "live_turn_gemini" : "live_turn_openai"
         service.onTurnComplete = { [weak self] in
             Task { @MainActor in
+                // Cloud live turns are COUNTED, not timed: the server does the VAD, so the
+                // client never sees when the user stopped speaking — any perceived-latency
+                // number here would be fabricated. The count keeps live usage visible.
+                MetricsCollector.shared.count(liveTurnEvent)
                 // History: persist this live-video exchange (transcript only, no frames).
                 self?.recordLiveTurn()
             }
@@ -1619,10 +1649,10 @@ final class VoiceAgentViewModel: ObservableObject {
             // Streamed replies never reach speakResponse, so this is where perceived latency ends
             // on the Apple-TTS path — and it lands EARLIER than on the Kokoro path, which is
             // exactly the difference `tts_lead_in_s` is meant to expose.
-            // TTS time-to-first-byte starts when the engine is handed text, not when generation
-            // finishes — on a streamed reply those are seconds apart.
-            MetricsCollector.shared.markTTSRequested()
-            MetricsCollector.shared.markFirstAudio()
+            // No metric marks here: opening the stream session hands NOTHING to an engine —
+            // the first sentence may only complete a boundary seconds later. markTTSRequested
+            // fires in speakStreamedChunk at the actual hand-off; markFirstAudio fires inside
+            // the engines when sound actually starts.
             if usingAppleTTS {
                 ttsService.beginStreaming()
             } else {
@@ -1664,6 +1694,8 @@ final class VoiceAgentViewModel: ObservableObject {
     /// Ordering is preserved because Kokoro's own queue appends in call order and each chunk is
     /// scheduled on the player as it completes.
     private func speakStreamedChunk(_ sentence: String) {
+        // First-wins: the first sentence handed over starts the TTS TTFB clock.
+        MetricsCollector.shared.markTTSRequested()
         if usingAppleTTS {
             ttsService.speakChunk(sentence)
         } else {
@@ -1679,8 +1711,10 @@ final class VoiceAgentViewModel: ObservableObject {
         // Perceived latency ends here: the gap between this and speechEnd is the wearer's wait.
         // (An approximation — synthesis still has to start — but it is the moment we hand off,
         // and the difference between Kokoro and Apple TTS shows up in `ttsLeadIn`.)
+        // Text is handed to an engine on the next line — TTFB clock starts now. The firstAudio
+        // mark comes from the engine itself when sound actually starts; marking it here excluded
+        // synthesis time, making TTS TTFB structurally zero and perceived latency optimistic.
         MetricsCollector.shared.markTTSRequested()
-        MetricsCollector.shared.markFirstAudio()
         // Kokoro (on-device neural) when selected + ready; otherwise the Apple system voice.
         if settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady {
             Task { await KokoroTTSService.shared.speak(text, voice: settingsManager.settings.kokoroVoice) }

@@ -47,7 +47,23 @@ struct TurnTimeline: Identifiable, Sendable {
     /// Metal GPU measurably slows decode, so tok/s is only comparable within one engine.
     var ttsEngine: String?
     /// Tokens produced, for tok/s. Nil when the backend doesn't report it (cloud streaming).
+    ///
+    /// ACCUMULATED across generation passes: a routed turn can run the model more than once
+    /// (route -> answer, or search-reformulate -> answer). Overwriting instead of accumulating
+    /// once paired pass-2's token count with pass-1's time window — a fabricated rate.
     var tokenCount: Int?
+
+    /// Exact decode time reported by the generation library (`GenerateCompletionInfo.generateTime`),
+    /// accumulated across passes like `tokenCount`. This — not timeline-timestamp deltas — is the
+    /// denominator for tok/s: timeline stamps are first-wins and get backfilled for non-streaming
+    /// backends, so a rate derived from them can silently cover a different span than the tokens.
+    var generationSeconds: TimeInterval?
+
+    /// Time spent acquiring a camera frame before a vision turn's model call (live video mode).
+    /// Kept separate so it's visible: it happens between commit and first token, so `ttft` on
+    /// vision turns INCLUDES it — comparing vision ttft against text ttft without this number
+    /// blames the model for time spent waiting on the glasses' Bluetooth stream.
+    var frameGrabSeconds: TimeInterval?
     /// True when the turn ended early (interrupted/superseded/error) rather than completing.
     /// This is the "E" in RED — a turn that failed is a failure whether or not it was slow.
     var abandoned: Bool = false
@@ -70,8 +86,15 @@ struct TurnTimeline: Identifiable, Sendable {
     /// Backend think time before any output. Includes network for cloud, prompt eval for local.
     var timeToFirstToken: TimeInterval? { Self.delta(commitAt, firstTokenAt) }
 
-    /// Pure generation time after the first token.
+    /// Wall-clock span from first token (first pass) to generation end (last pass). On a
+    /// multi-pass turn this INCLUDES time between passes — e.g. the web search a routed turn runs
+    /// between routing and answering — so it is a coarse fallback, not decode time. Prefer
+    /// `generationSeconds` (exact, library-reported, decode only) whenever it exists.
     var generationDuration: TimeInterval? { Self.delta(firstTokenAt, generationDoneAt) }
+
+    /// Best available generation time: exact accumulated decode when the backend reported it,
+    /// otherwise the wall-clock span above (cloud/Apple backends that only get backstop marks).
+    var generationSecondsBestEffort: TimeInterval? { generationSeconds ?? generationDuration }
 
     /// Synthesis lead-in: reply text ready -> first audible sound. **Signed on purpose.**
     ///
@@ -99,19 +122,18 @@ struct TurnTimeline: Identifiable, Sendable {
     /// Whole turn including playback.
     var totalDuration: TimeInterval? { Self.delta(speechEndAt, spokeDoneAt) }
 
-    /// Generation rate. Uses first-token -> done so it measures decode speed, not queueing.
-    ///
-    /// Requires a plausible window, not merely a positive one: when a backend doesn't stream,
-    /// `firstTokenAt` is backfilled to the same instant as `generationDoneAt`, leaving a
-    /// microsecond duration that divides into millions of tokens/sec and wrecks the chart scale.
-    /// No rate is better than a fictional one.
+    /// Decode rate, computed ONLY from the library-reported pair (token count + generate time),
+    /// both accumulated over the same passes. Never derived from timeline timestamps: those are
+    /// first-wins and backfilled for non-streaming backends, which produced two past bugs — a
+    /// microsecond window dividing into millions of tok/s, and pass-2 tokens over a pass-1 window.
+    /// The minimum-window guard stays as a sanity check; no rate is better than a fictional one.
     static let minimumRateWindow: TimeInterval = 0.05
 
     var tokensPerSecond: Double? {
         guard let tokens = tokenCount, tokens > 0,
-              let duration = generationDuration,
-              duration >= Self.minimumRateWindow else { return nil }
-        return Double(tokens) / duration
+              let seconds = generationSeconds,
+              seconds >= Self.minimumRateWindow else { return nil }
+        return Double(tokens) / seconds
     }
 
     /// True once the turn reached audible output — the point where it counts as "delivered".

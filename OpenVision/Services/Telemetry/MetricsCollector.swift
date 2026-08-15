@@ -117,23 +117,54 @@ final class MetricsCollector: ObservableObject {
     /// First output token from the model.
     func markFirstToken() { setIfUnset(\.firstTokenAt) }
 
-    /// Generation finished. `tokenCount` powers tok/s when the backend can report it.
+    /// Generation finished. `tokenCount` and `duration` come from the generation library's own
+    /// completion info (exact token ids and decode time) — not from counting chunks or from
+    /// timeline deltas.
+    ///
+    /// Both ACCUMULATE: a routed turn can run the model more than once (route -> answer, or
+    /// search-reformulate -> answer). Overwriting paired one pass's tokens with another pass's
+    /// window; first-wins dropped later passes entirely. Accumulating both keeps the numerator
+    /// and denominator describing the same work.
     ///
     /// Backfills `firstTokenAt` because generation cannot finish without having started, and the
     /// two marks arrive in either order depending on the backend: streaming paths report a first
     /// token early, non-streaming ones never report it at all and would otherwise leave the whole
     /// post-commit breakdown missing (or, if marked later, negative).
-    func markGenerationDone(tokenCount: Int? = nil) {
+    func markGenerationDone(tokenCount: Int? = nil, duration: TimeInterval? = nil) {
         setIfUnset(\.firstTokenAt)
-        setIfUnset(\.generationDoneAt)
-        if let tokenCount { currentTurn?.tokenCount = tokenCount }
+        // generationDoneAt is deliberately last-wins across passes, so the stage delta spans
+        // first token of the first pass to the end of the last pass.
+        if var turn = currentTurn {
+            turn.generationDoneAt = Date()
+            if let tokenCount { turn.tokenCount = (turn.tokenCount ?? 0) + tokenCount }
+            if let duration { turn.generationSeconds = (turn.generationSeconds ?? 0) + duration }
+            currentTurn = turn
+        }
     }
 
     /// Text was handed to the speech engine. Starts the TTS time-to-first-byte clock.
     func markTTSRequested() { setIfUnset(\.ttsRequestedAt) }
 
     /// First audible sound of the reply — the end of the wearer's perceived wait.
-    func markFirstAudio() { setIfUnset(\.firstAudioAt) }
+    ///
+    /// Called from the speech ENGINES at actual playback start (AVSpeechSynthesizer's `didStart`,
+    /// Kokoro's player scheduling) — not from the view model at text hand-off, which excluded
+    /// synthesis time and made both perceived latency and TTS TTFB structurally optimistic.
+    ///
+    /// Gated on `ttsRequestedAt`: the engines speak system utterances too ("please connect your
+    /// glasses"), and without the gate one of those starting mid-turn would stamp the turn's
+    /// first-audio with sound that is not its reply.
+    func markFirstAudio() {
+        guard currentTurn?.ttsRequestedAt != nil else { return }
+        setIfUnset(\.firstAudioAt)
+    }
+
+    /// Camera-frame acquisition time for a vision turn (live video). Accumulates like generation.
+    func markFrameGrab(seconds: TimeInterval) {
+        guard var turn = currentTurn, seconds >= 0 else { return }
+        turn.frameGrabSeconds = (turn.frameGrabSeconds ?? 0) + seconds
+        currentTurn = turn
+    }
 
     /// The user spoke over the assistant. Recorded on the turn being interrupted, so interruption
     /// rate can be read per model/engine — a slow or wrong answer gets talked over more.

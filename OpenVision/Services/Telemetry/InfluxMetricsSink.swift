@@ -91,9 +91,13 @@ final class InfluxMetricsSink: MetricsSink, @unchecked Sendable {
         // Each stage is optional: an abandoned turn still tells us where it got to.
         if let v = turn.commitDuration { fields.append("commit_s=\(v)") }
         if let v = turn.timeToFirstToken { fields.append("ttft_s=\(v)") }
-        if let v = turn.generationDuration { fields.append("generation_s=\(v)") }
+        // Exact accumulated decode time when the backend reported it; wall-clock fallback for
+        // backends that only get backstop marks (the fallback can include tool time on
+        // multi-pass turns, the exact figure never does).
+        if let v = turn.generationSecondsBestEffort { fields.append("generation_s=\(v)") }
         if let v = turn.ttsLeadIn { fields.append("tts_lead_in_s=\(v)") }
         if let v = turn.ttsTimeToFirstByte { fields.append("tts_ttfb_s=\(v)") }
+        if let v = turn.frameGrabSeconds { fields.append("frame_grab_s=\(v)") }
         if let v = turn.perceivedLatency { fields.append("perceived_latency_s=\(v)") }
         if let v = turn.totalDuration { fields.append("total_s=\(v)") }
         if let v = turn.tokensPerSecond { fields.append("tokens_per_second=\(v)") }
@@ -101,13 +105,16 @@ final class InfluxMetricsSink: MetricsSink, @unchecked Sendable {
         // RED's "errors" and the voice-agent interruption rate. Written as 0/1 integers rather
         // than booleans so they can be averaged into rates directly in Flux — a mean over
         // `succeeded` IS the success rate.
+        //
+        // Every finished turn is recorded, even one with no duration fields at all: a turn where
+        // the user spoke and nothing was ever delivered is the most important failure there is,
+        // and the old "no measurable field is noise" guard silently dropped exactly those.
+        // Success here means "a reply was delivered", nothing more — a spoken error message
+        // counts as delivered; semantic quality is not measured.
         fields.append("abandoned=\(turn.abandoned)")
         fields.append("failed=\(turn.abandoned ? 1 : 0)i")
         fields.append("succeeded=\(turn.abandoned ? 0 : 1)i")
         fields.append("interrupted=\(turn.interrupted ? 1 : 0)i")
-
-        // A point with no measurable field is noise.
-        guard fields.count > 1 else { return }
 
         enqueue(line(
             measurement: "turn",

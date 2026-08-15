@@ -80,7 +80,7 @@
       "id": 20,
       "type": "stat",
       "title": "Turn success rate",
-      "description": "RED's Errors. A turn is a failure when it ends without delivering audio \u2014 interrupted, superseded, or errored. A dashboard that only shows latency cannot tell a fast failure from a fast success.",
+      "description": "RED's Errors. Success = a reply was DELIVERED (audio reached the wearer); failure = the turn ended with no audio at all. A spoken error message counts as delivered - semantic quality is not measured. A dashboard that only shows latency cannot tell a fast failure from a fast success.",
       "datasource": {
         "type": "influxdb",
         "uid": "openvision-influx"
@@ -191,7 +191,7 @@
       "id": 22,
       "type": "stat",
       "title": "p95 perceived latency",
-      "description": "RED's Duration. Published voice-agent targets are P90 under 3.5s and P99 under 5s.",
+      "description": "RED's Duration. Published voice-agent targets are P90 under 3.5s and P99 under 5s. Needs ~20+ turns in the window to mean much - check the turn count.",
       "datasource": {
         "type": "influxdb",
         "uid": "openvision-influx"
@@ -257,7 +257,7 @@
       "id": 23,
       "type": "stat",
       "title": "p99 perceived latency",
-      "description": "The worst turns. Grafana's guidance is explicit that averages and medians hide tail latency \u2014 this is where a bad experience actually lives.",
+      "description": "The worst turns. Grafana's guidance is explicit that averages and medians hide tail latency \u2014 this is where a bad experience actually lives. With few turns in the window this IS simply the single worst turn - read it beside the turn count.",
       "datasource": {
         "type": "influxdb",
         "uid": "openvision-influx"
@@ -946,8 +946,8 @@
     {
       "id": 8,
       "type": "stat",
-      "title": "Turns recorded",
-      "description": "Completed turns in the window. If this stays at zero while device metrics flow, turn instrumentation is broken rather than idle.",
+      "title": "Turns (incl. failed)",
+      "description": "Every recorded turn, delivered or failed \u2014 counted on the succeeded field, which exists on all turns. Counting a latency field excluded exactly the failures the success rate needs context for. Zero here while device metrics flow means broken instrumentation, not an idle app. Percentiles need ~20+ turns to mean much.",
       "datasource": {
         "type": "influxdb",
         "uid": "openvision-influx"
@@ -972,7 +972,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> count()"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"succeeded\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> count()"
         }
       ],
       "options": {
@@ -1218,7 +1218,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"perceived_latency_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\" or r._field == \"tokens_per_second\" or r._field == \"tts_lead_in_s\")\n  |> group(columns: [\"model\", \"tts\", \"_field\"])\n  |> mean()\n  |> keep(columns: [\"model\", \"tts\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"model\", \"tts\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\")\n  |> filter(fn: (r) => r._field == \"perceived_latency_s\" or r._field == \"ttft_s\" or r._field == \"generation_s\" or r._field == \"tokens_per_second\" or r._field == \"tts_lead_in_s\" or r._field == \"tts_ttfb_s\" or r._field == \"frame_grab_s\")\n  |> group(columns: [\"model\", \"tts\", \"_field\"])\n  |> mean()\n  |> keep(columns: [\"model\", \"tts\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"model\", \"tts\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
         }
       ]
     },
@@ -1226,7 +1226,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "Time to first token by model",
-      "description": "Prompt processing before any output, split by model. Climbing within a conversation means history is being reprocessed.",
+      "description": "Prompt processing before any output, split by model. Climbing within a conversation means history is being reprocessed. Live-video vision turns INCLUDE camera-frame acquisition here (up to ~1.3s) - frame_grab_s in the summary table isolates that share, so vision ttft is not pure model time.",
       "datasource": {
         "type": "influxdb",
         "uid": "openvision-influx"

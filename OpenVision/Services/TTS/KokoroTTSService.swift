@@ -247,6 +247,12 @@ final class KokoroTTSService: ObservableObject {
                 }
             }
             playerNode.play()
+            // Audio genuinely starts here (buffer scheduled + player running) — the counterpart
+            // of AVSpeechSynthesizer's didStart. Kokoro synthesis time is the whole reason this
+            // must NOT be marked at text hand-off: synthesis runs on the GPU alongside the model,
+            // and marking early hid exactly that cost from perceived latency and TTS TTFB.
+            // First-wins per turn; gated in the collector on the turn having requested TTS.
+            MetricsCollector.shared.markFirstAudio()
         } catch {
             NSLog("[OV] Kokoro playback failed: %@", "\(error)")
             isSpeaking = false
