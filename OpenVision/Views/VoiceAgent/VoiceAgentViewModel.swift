@@ -1097,6 +1097,28 @@ final class VoiceAgentViewModel: ObservableObject {
         // Deterministic narration toggle — a code guard, not model routing, per the repo's
         // standing lesson that small models ignore subtle routing rules.
         let lower = command.lowercased()
+
+        // Bare stop-words are a command to SHUT UP, never a vision question. The stop-phrase
+        // branch in VoiceCommandService only runs while a reply is actively playing (.processing);
+        // between replies, live mode sits in conversation mode, where "Ok Vision stop" had its
+        // wake word stripped and "stop" arrived HERE — and got sent to the model as a question,
+        // producing another description. Every stop attempt triggered more speech: "it keeps on
+        // describing, it doesn't simply stop". Silence everything, stay in live mode ("stop
+        // video" remains the phrase that exits).
+        let stopWords: Set<String> = ["stop", "stop it", "stop talking", "be quiet", "quiet",
+                                      "shut up", "enough", "cancel", "silence"]
+        if stopWords.contains(lower.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            NSLog("[OV] live: bare stop — silencing, staying in live mode")
+            MetricsCollector.shared.markInterrupted()
+            MetricsCollector.shared.markSpokeDone()
+            ttsService.stop()
+            KokoroTTSService.shared.stop()
+            ttsStreaming = false
+            commandTurnActive = false
+            GemmaLocalService.shared.interrupt()
+            agentState = .liveVideo
+            return
+        }
         if lower.contains("narrat") || lower.contains("describe as i") {
             let turningOff = lower.contains("stop") || lower.contains("off") || lower.contains("quiet")
             watchNarrationEnabled = !turningOff
