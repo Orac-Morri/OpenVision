@@ -461,8 +461,15 @@ final class VoiceAgentViewModel: ObservableObject {
             }
         }
 
+        // In live video mode, a stop means SHUT UP, not "tear down my camera session" — the
+        // same rule as the command-level matcher, applied to the mid-reply stop-phrase route.
+        // (Verified on device: "Ok Vision stop" during a reply used to exit the whole mode.)
+        // "Stop video" remains the exit phrase.
         if isLiveVideoMode {
-            Task { await stopLiveVideoMode() }
+            NSLog("[OV] live: stop phrase — silenced, staying in live mode")
+            voiceCommandService.enterConversationMode()
+            agentState = .liveVideo
+            return
         }
 
         // Go quiet: end the turn, return to wake-word idle. Say "Ok Vision" to start again.
