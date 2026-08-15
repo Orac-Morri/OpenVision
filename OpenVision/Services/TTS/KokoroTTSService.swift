@@ -242,6 +242,43 @@ final class KokoroTTSService: ObservableObject {
         if outputDrained { isSpeaking = false }
     }
 
+    /// Ambient narration (watch loop): speaks ONLY into silence and never preempts.
+    ///
+    /// `speak(_:voice:)` is for replies — it restarts the player, cutting whatever is playing.
+    /// A watch line doing that cut user replies off mid-sentence: the loop's guards passed while
+    /// nothing was speaking, then a reply began during the line's 1–3s of synthesis, and the
+    /// finished line stomped it. This path re-checks AFTER synthesis and drops itself if any real
+    /// speech (streamed or not) started meanwhile — a dropped narration line costs nothing; the
+    /// next scene change will describe again.
+    func speakAmbient(_ text: String, voice: String) async {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, isModelReady, !isSpeaking, !streaming else { return }
+        isSpeaking = true          // pause the recognizer while narration synthesises + plays
+        generationActive = true
+        // This is a NEW utterance we now own: a leftover cancel flag from a previous stop()
+        // would otherwise drop every ambient line until the next streamed reply reset it.
+        utteranceCancelled = false
+        defer {
+            generationActive = false
+            if outputDrained { isSpeaking = false }
+        }
+        do {
+            let voiceArray = try await ensureVoice(voice)
+            let tts = try ensureEngine()
+            let language: Language = voice.first == "b" ? .enGB : .enUS
+            let samples: [Float] = try await Task.detached(priority: .utility) {
+                let (audio, _) = try tts.generateAudio(voice: voiceArray, language: language, text: clean)
+                return audio
+            }.value
+            // A reply may have begun while we synthesised: beginStreaming sets `streaming`,
+            // speak() restarts the player (utteranceCancelled/stop covers that route). Drop.
+            guard isSpeaking, !streaming, !utteranceCancelled, !samples.isEmpty else { return }
+            enqueue(samples, restartPlayer: false)   // append into silence; NEVER stop the player
+        } catch {
+            NSLog("[OV] Kokoro speakAmbient failed: %@", "\(error)")
+        }
+    }
+
     // MARK: - Playback (24 kHz mono float, sentence-queued)
 
     /// Buffers scheduled on the player that haven't finished playing yet. Combined with

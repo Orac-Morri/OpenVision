@@ -134,6 +134,7 @@ final class VoiceAgentViewModel: ObservableObject {
         } else {
             // Playback finished — closes the turn and publishes it to the metrics sinks.
             MetricsCollector.shared.markSpokeDone()
+            commandTurnActive = false   // reply fully played; ambient narration may resume
 
             // Resume barge-in detection
             voiceCommandService.isBargeInPaused = false
@@ -160,6 +161,7 @@ final class VoiceAgentViewModel: ObservableObject {
             // ttsSpeakingChanged left every Kokoro turn unpublished — device metrics kept
             // flowing while turn metrics silently vanished whenever Kokoro was selected.
             MetricsCollector.shared.markSpokeDone()
+            commandTurnActive = false   // reply fully played; ambient narration may resume
 
             voiceCommandService.isBargeInPaused = false
             if isSessionActive {
@@ -443,6 +445,7 @@ final class VoiceAgentViewModel: ObservableObject {
         // to be recorded as failed by the next beginTurn.
         MetricsCollector.shared.markInterrupted()
         MetricsCollector.shared.markSpokeDone()
+        commandTurnActive = false
         ttsService.stop()
         KokoroTTSService.shared.stop()
         audioPlayback.stop()
@@ -567,6 +570,8 @@ final class VoiceAgentViewModel: ObservableObject {
             }
 
             self.userTranscript = command
+            // Suspend ambient narration for the WHOLE turn (through reply playback).
+            self.commandTurnActive = true
 
             // Telemetry: the turn is now the backend's problem — everything after this is
             // think time, and everything before it was endpointing.
@@ -687,6 +692,10 @@ final class VoiceAgentViewModel: ObservableObject {
                             KokoroTTSService.shared.endStreaming()
                         }
                         self.ttsStreaming = false
+                    }
+                    if !self.ttsService.isSpeaking && !KokoroTTSService.shared.isSpeaking {
+                        // Turn produced no speech (error/interrupt) — release the narration hold.
+                        self.commandTurnActive = false
                     }
                     if self.agentState == .thinking
                         && !self.ttsService.isSpeaking && !KokoroTTSService.shared.isSpeaking {
@@ -1109,6 +1118,15 @@ final class VoiceAgentViewModel: ObservableObject {
     private var watchLastThumb: [UInt8]?
     /// The last description actually SPOKEN — the chatter gate.
     private var watchLastSpoken: String?
+    /// Thumbnail of the scene the last SPOKEN line described. A stronger repeat-gate than text
+    /// similarity alone: short sentences share few words, so rephrasings of the same scene
+    /// scored as "new" and were re-announced. Same scene = one announcement, full stop.
+    private var watchLastSpokenThumb: [UInt8]?
+    /// True from command capture until the reply has FINISHED PLAYING. The watch loop's
+    /// point-in-time "is anything speaking?" checks straddled 1-3s of async inference+synthesis,
+    /// so a reply could begin inside that window and get preempted by the finished watch line —
+    /// cutting the user's answer off mid-sentence. This flag covers the whole turn lifecycle.
+    private var commandTurnActive = false
 
     /// Describe the current view continuously, spending inference only on scene changes and
     /// speech only on genuinely new content. Economics per frame (measured): inference ~1-2s of
@@ -1128,7 +1146,7 @@ final class VoiceAgentViewModel: ObservableObject {
                 // Yield entirely while a question is being answered or a reply is being spoken —
                 // the loop must never steal GPU from a real turn, and describing while speaking
                 // would talk over the answer.
-                if self.agentState == .thinking
+                if self.commandTurnActive || self.agentState == .thinking
                     || self.ttsService.isSpeaking || KokoroTTSService.shared.isSpeaking {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                     continue
@@ -1140,11 +1158,18 @@ final class VoiceAgentViewModel: ObservableObject {
                     continue
                 }
                 // Scene-change gate: skip inference when the view hasn't meaningfully changed.
+                // The diff is logged on BOTH branches — the threshold is tuned from these
+                // numbers against real glasses jitter, not by feel.
                 let thumb = Self.grayThumbnail(frame)
-                if let last = self.watchLastThumb, !FrameChange.isNewScene(thumb, last) {
-                    MetricsCollector.shared.count("watch_skipped")
-                    try? await Task.sleep(nanoseconds: 250_000_000)
-                    continue
+                if let last = self.watchLastThumb {
+                    let diff = FrameChange.difference(thumb, last)
+                    if diff <= FrameChange.sceneChangeThreshold {
+                        NSLog("[OV] watch: skip diff=%.3f", diff)
+                        MetricsCollector.shared.count("watch_skipped")
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        continue
+                    }
+                    NSLog("[OV] watch: NEW SCENE diff=%.3f", diff)
                 }
                 guard let jpeg = frame.jpegData(compressionQuality: 0.6) else {
                     try? await Task.sleep(nanoseconds: 200_000_000)
@@ -1158,14 +1183,24 @@ final class VoiceAgentViewModel: ObservableObject {
                     let inferSeconds = Date().timeIntervalSince(inferStart)
                     MetricsCollector.shared.count("watch_described")
                     NSLog("[OV] watch: %.2fs \"%@\"", inferSeconds, description)
-                    // Chatter gate: speak only when the description says something NEW, and never
-                    // over a reply that started while we were inferring. A dropped line is fine —
-                    // the next scene change will describe again.
-                    if !description.isEmpty,
+                    // Speak gates, all must pass:
+                    //  1. the SCENE moved on since the last spoken line — text similarity alone
+                    //     re-announced rephrasings ("this is a plant" / "a potted plant" share
+                    //     too few words), so same scene = one announcement, full stop;
+                    //  2. the description says something new;
+                    //  3. no command turn began while we were inferring (the async window the
+                    //     old point-checks missed — this is what cut replies mid-sentence).
+                    // speakWatchLine itself is ambient: appends into silence, never preempts.
+                    let sceneMovedOn = self.watchLastSpokenThumb.map {
+                        FrameChange.isNewScene(thumb, $0)
+                    } ?? true
+                    if !description.isEmpty, sceneMovedOn,
                        FrameChange.isWorthSpeaking(description, lastSpoken: self.watchLastSpoken),
+                       !self.commandTurnActive,
                        !self.ttsService.isSpeaking, !KokoroTTSService.shared.isSpeaking,
                        self.agentState != .thinking, self.isLiveVideoMode {
                         self.watchLastSpoken = description
+                        self.watchLastSpokenThumb = thumb
                         self.aiTranscript = description
                         MetricsCollector.shared.count("watch_spoke")
                         self.speakWatchLine(description)
@@ -1184,17 +1219,19 @@ final class VoiceAgentViewModel: ObservableObject {
         watchTask = nil
         watchLastThumb = nil
         watchLastSpoken = nil
+        watchLastSpokenThumb = nil
     }
 
-    /// Speak a watch-loop line OUTSIDE the turn pipeline: no history, no turn metrics — these are
-    /// ambient narration between user turns, and routing them through speakResponse would stamp
-    /// TTS marks onto any dangling turn and record narration as conversation.
+    /// Speak a watch-loop line OUTSIDE the turn pipeline: no history, no turn metrics — and via
+    /// the AMBIENT engine paths, which append into silence and never preempt. The reply paths
+    /// (speak/beginStreaming) restart the player; a watch line using them cut user replies off
+    /// mid-sentence whenever one landed during the line's synthesis window.
     private func speakWatchLine(_ text: String) {
         if settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady {
             let voice = settingsManager.settings.kokoroVoice
-            Task { await KokoroTTSService.shared.speak(text, voice: voice) }
+            Task { await KokoroTTSService.shared.speakAmbient(text, voice: voice) }
         } else {
-            ttsService.speak(text)
+            ttsService.speakAmbient(text)
         }
     }
 

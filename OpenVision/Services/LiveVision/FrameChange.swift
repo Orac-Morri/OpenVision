@@ -27,9 +27,11 @@ enum FrameChange {
     }
 
     /// Scene-change threshold on `difference`. Below this the view is considered unchanged and
-    /// the frame is skipped without inference. 0.06 ≈ small lighting flicker and BT compression
-    /// noise stay under it; turning the head or swapping the object in hand lands well above.
-    static let sceneChangeThreshold = 0.06
+    /// the frame is skipped without inference. Set with a worn camera in mind: the wearer's head
+    /// is NEVER still, so micro-jitter shifts most pixels a little — 0.06 fired constantly on the
+    /// same scene. A genuine head-turn or subject change lands ~0.2+; 0.12 leaves margin both
+    /// ways. Tune against the per-frame diff values in the console log, not by feel.
+    static let sceneChangeThreshold = 0.12
 
     static func isNewScene(_ a: [UInt8], _ b: [UInt8]) -> Bool {
         difference(a, b) > sceneChangeThreshold

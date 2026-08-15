@@ -88,6 +88,16 @@ final class TTSService: NSObject, ObservableObject {
         enqueue(text)
     }
 
+    /// Ambient narration (watch loop): speaks only into silence and never preempts — `speak`
+    /// stops the synthesizer first, which cut replies off mid-sentence when a watch line landed
+    /// during one. Dropped lines are fine; the next scene change describes again.
+    func speakAmbient(_ text: String) {
+        guard !isSpeaking, !streamingActive else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        enqueue(trimmed)
+    }
+
     // MARK: - Streaming (sentence-by-sentence)
 
     /// Begin a streamed reply. Clears the queue and latches `isSpeaking` true so the recognizer
