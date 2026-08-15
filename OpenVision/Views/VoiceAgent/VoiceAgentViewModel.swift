@@ -810,12 +810,31 @@ final class VoiceAgentViewModel: ObservableObject {
     private func sendCommand(_ command: String) async {
         let lowerCommand = command.lowercased()
 
-        // Check for "stop" command - stops TTS and waits for next command
-        let stopKeywords = ["stop", "be quiet", "shut up", "silence", "quiet", "enough", "ok stop", "okay stop"]
-        let isStopCommand = stopKeywords.contains { lowerCommand.contains($0) } &&
-                           !lowerCommand.contains("video") && !lowerCommand.contains("stream")
+        // Check for "stop" command - stops TTS and waits for next command.
+        // Matched on WORDS, not substrings: `.contains("stop")` treated "what's on the desktop"
+        // as a stop command and killed the session mid-question.
+        let commandWords = Set(lowerCommand.split(whereSeparator: { !$0.isLetter }).map(String.init))
+        let stopWords: Set<String> = ["stop", "quiet", "silence", "enough"]
+        let stopPhrases = ["be quiet", "shut up", "ok stop", "okay stop", "stop talking", "stop it"]
+        let isStopCommand = (!commandWords.isDisjoint(with: stopWords)
+                             || stopPhrases.contains { lowerCommand.contains($0) })
+                             && !lowerCommand.contains("video") && !lowerCommand.contains("stream")
 
         if isStopCommand {
+            // In live video mode, "stop" means SHUT UP, not "tear down my camera session" —
+            // silence everything and stay live. "Stop video" (excluded above) exits the mode.
+            if isLiveVideoMode {
+                NSLog("[OV] live: stop — silencing, staying in live mode")
+                MetricsCollector.shared.markInterrupted()
+                MetricsCollector.shared.markSpokeDone()
+                ttsService.stop()
+                KokoroTTSService.shared.stop()
+                ttsStreaming = false
+                commandTurnActive = false
+                GemmaLocalService.shared.interrupt()
+                agentState = .liveVideo
+                return
+            }
             print("[VoiceAgent] Stop command detected - full stop")
             performFullStop()
             return
