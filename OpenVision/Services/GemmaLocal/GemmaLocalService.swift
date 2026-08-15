@@ -733,7 +733,12 @@ final class GemmaLocalService: ObservableObject {
 
     /// Send a prompt and return the full reply via `onAgentMessage`. When `imageData` is provided
     /// (a glasses photo), it's passed to the Gemma 4 VLM so it can answer "what's this?" on-device.
+    /// AIBackend conformance — exact protocol signature; defaulted params don't satisfy requirements.
     func sendMessage(_ text: String, imageData: Data? = nil) async throws {
+        try await sendMessage(text, imageData: imageData, includeHistory: true)
+    }
+
+    func sendMessage(_ text: String, imageData: Data?, includeHistory: Bool) async throws {
         NSLog("[OV] GemmaLocal sendMessage: \"%@\" — loaded: %@, image: %d bytes", text, modelContainer != nil ? "yes" : "no", imageData?.count ?? 0)
         guard let container = modelContainer else {
             print("[GemmaLocal] ✗ model NOT loaded — throwing")
@@ -790,9 +795,16 @@ final class GemmaLocalService: ObservableObject {
         // image" (a vision question that reached the model text-only), a sub-1B model will parrot
         // that refusal from history on every later turn EVEN WITH an image attached — same
         // context-over-pixels failure as the grounding bug. Narrow, deterministic markers only.
+        // includeHistory=false is the caller saying "the scene has CHANGED since the last
+        // exchange — answer with fresh eyes". History full of 'what do you see -> a desk with
+        // two monitors' made the model copy the old answer to the identical question while
+        // looking at a WALL (the attached image was verified correct in the console; the words
+        // came from history). Fourth incarnation of the same law: a sub-1B model believes its
+        // context over its eyes, so context must be provably consistent with the pixels.
+        let historyTurns = includeHistory ? ConversationContext.shared.turns : []
         let refusalMarkers = ["upload an image", "provide an image", "can't see the image",
                               "cannot see the image", "unable to see", "no image"]
-        for turn in ConversationContext.shared.turns {
+        for turn in historyTurns {
             if visionImage != nil, turn.role == "assistant",
                refusalMarkers.contains(where: { turn.content.lowercased().contains($0) }) {
                 NSLog("[OV] GemmaLocal: dropping refusal turn from vision history")

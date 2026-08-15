@@ -1241,7 +1241,17 @@ final class VoiceAgentViewModel: ObservableObject {
                     prompt += "\n(Scenes you saw in the last minute or so:\n\(lines))"
                 }
             }
-            try await GemmaLocalService.shared.sendMessage(prompt, imageData: jpeg)
+            // Fresh scene => fresh eyes: withhold history when the view has changed since the
+            // last vision exchange, keep it when it's the same scene so follow-ups still work.
+            let sameSceneAsLastExchange = lastVisionExchangeThumb.map {
+                !FrameChange.isNewScene(frameThumb, $0)
+            } ?? false
+            if !sameSceneAsLastExchange {
+                NSLog("[OV] live: scene changed since last exchange — answering without history")
+            }
+            lastVisionExchangeThumb = frameThumb
+            try await GemmaLocalService.shared.sendMessage(prompt, imageData: jpeg,
+                                                           includeHistory: sameSceneAsLastExchange)
         } catch {
             print("[VoiceAgent] Local live video inference failed: \(error)")
             speakResponse("Sorry, that didn't work. \(error.localizedDescription)")
@@ -1256,6 +1266,11 @@ final class VoiceAgentViewModel: ObservableObject {
     private var watchLastThumb: [UInt8]?
     /// The last description actually SPOKEN — the chatter gate.
     private var watchLastSpoken: String?
+    /// Thumbnail of the frame sent with the last VISION QUESTION. When the next question's frame
+    /// shows a different scene, conversation history is withheld from the model — fresh scene,
+    /// fresh eyes — because history containing the same question about a previous scene made the
+    /// model copy its old answer instead of reading the new image.
+    private var lastVisionExchangeThumb: [UInt8]?
     /// Thumbnail of the scene the last SPOKEN line described. A stronger repeat-gate than text
     /// similarity alone: short sentences share few words, so rephrasings of the same scene
     /// scored as "new" and were re-announced. Same scene = one announcement, full stop.
@@ -1419,6 +1434,7 @@ final class VoiceAgentViewModel: ObservableObject {
         watchLatestDescription = nil
         watchRecentDescriptions.removeAll()
         watchNarrationEnabled = false
+        lastVisionExchangeThumb = nil
     }
 
     /// Speak a watch-loop line OUTSIDE the turn pipeline: no history, no turn metrics — and via
