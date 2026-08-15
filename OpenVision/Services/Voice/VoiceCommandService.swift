@@ -581,8 +581,15 @@ final class VoiceCommandService: ObservableObject {
                 return
             }
 
+            // The at-start requirement is ECHO defense: while a reply plays, the mic transcribes
+            // the reply's own audio, and a wake word mid-buffer is suspect. But during THINKING
+            // no reply audio exists — everything in the buffer is the user — and requiring the
+            // wake word first discarded genuine interrupts whenever the user led with natural
+            // preamble ("hey, ...ok vision, new question"): the log showed eight detections, all
+            // dropped. isBargeInPaused is true exactly while either engine is audible, so it is
+            // the precise boundary between the two regimes.
             if allowInterrupt && detectWakeWord(in: transcription, bypassCooldown: true)
-                && wakeWordAtStart(transcription) {
+                && (wakeWordAtStart(transcription) || !isBargeInPaused) {
                 // A BARE "Ok Vision" with nothing after it, mid-reply, is almost always the mic
                 // hallucinating the wake word from the reply audio the speaker is playing (echo) —
                 // NOT a deliberate interrupt. Real interrupts carry a follow-up ("Ok Vision, what
