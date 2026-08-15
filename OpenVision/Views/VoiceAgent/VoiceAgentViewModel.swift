@@ -866,6 +866,24 @@ final class VoiceAgentViewModel: ObservableObject {
             return
         }
 
+        // Vision-phrased questions OUTSIDE live mode must never reach the local model text-only:
+        // FastVLM answered "please upload an image", that refusal entered conversation history,
+        // and the model then parroted it on every later vision turn — image attached or not.
+        // Photo-capture phrasings ("take a photo and...") are handled elsewhere and unaffected;
+        // this catches the bare "what do you see" style, which has no image source outside live
+        // mode, and answers with guidance instead of poisoning the session.
+        if !isLiveVideoMode, settingsManager.settings.aiBackend == .localGemma {
+            let visionPhrases = ["what do you see", "what am i looking at", "what are you looking at",
+                                 "what's in front of me", "what is in front of me",
+                                 "describe what you see", "describe the view", "describe the scene"]
+            if visionPhrases.contains(where: { lowerCommand.contains($0) }),
+               !lowerCommand.contains("photo") && !lowerCommand.contains("picture") {
+                NSLog("[OV] vision question outside live mode — guiding instead of imageless model call")
+                speakResponse("I can't see anything right now. Say 'take a photo' for a quick look, or 'start live video' and I'll watch continuously.")
+                return
+            }
+        }
+
         if isStopLiveCommand {
             print("[VoiceAgent] Stopping live video mode...")
             await stopLiveVideoMode()

@@ -785,7 +785,19 @@ final class GemmaLocalService: ObservableObject {
         chat.append(.init(role: .system, content: systemContent))
         // Session context so follow-ups work ("what about the one on the left?") — text turns
         // only; past frames are never re-sent (each vision turn sees only the current frame).
+        //
+        // Refusal quarantine for VISION turns: if an earlier turn ever produced "please upload an
+        // image" (a vision question that reached the model text-only), a sub-1B model will parrot
+        // that refusal from history on every later turn EVEN WITH an image attached — same
+        // context-over-pixels failure as the grounding bug. Narrow, deterministic markers only.
+        let refusalMarkers = ["upload an image", "provide an image", "can't see the image",
+                              "cannot see the image", "unable to see", "no image"]
         for turn in ConversationContext.shared.turns {
+            if visionImage != nil, turn.role == "assistant",
+               refusalMarkers.contains(where: { turn.content.lowercased().contains($0) }) {
+                NSLog("[OV] GemmaLocal: dropping refusal turn from vision history")
+                continue
+            }
             chat.append(.init(role: turn.role == "assistant" ? .assistant : .user, content: turn.content))
         }
         if let visionImage {
