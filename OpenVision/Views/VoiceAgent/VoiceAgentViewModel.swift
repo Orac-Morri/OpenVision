@@ -1081,6 +1081,17 @@ final class VoiceAgentViewModel: ObservableObject {
 
     /// Answer a spoken question in local live video mode using a fresh, settled glasses frame.
     private func handleLocalLiveVideoCommand(_ command: String) async {
+        // Deterministic narration toggle — a code guard, not model routing, per the repo's
+        // standing lesson that small models ignore subtle routing rules.
+        let lower = command.lowercased()
+        if lower.contains("narrat") || lower.contains("describe as i") {
+            let turningOff = lower.contains("stop") || lower.contains("off") || lower.contains("quiet")
+            watchNarrationEnabled = !turningOff
+            watchLastSpoken = nil
+            watchLastSpokenThumb = nil
+            speakResponse(turningOff ? "Okay, I'll watch quietly." : "Okay, I'll describe what I see as you go.")
+            return
+        }
         agentState = .thinking
         // Let head motion settle and grab the freshest frame, so we describe the CURRENT view
         // rather than a stale/motion-blurred one the Bluetooth stream delivered a beat ago.
@@ -1102,7 +1113,13 @@ final class VoiceAgentViewModel: ObservableObject {
         }
         do {
             // Strip "take a photo"-style wording; the frame is already attached.
-            let prompt = visionPromptFromCommand(command)
+            var prompt = visionPromptFromCommand(command)
+            // Ground with the watch loop's silent context when it's fresh: the model answers the
+            // question against the frame, with its own recent read of the scene as a hint —
+            // this is what the loop is FOR now that it no longer narrates.
+            if let latest = watchLatestDescription, Date().timeIntervalSince(latest.at) < 20 {
+                prompt += "\n(Your own view a moment ago: \(latest.text))"
+            }
             try await GemmaLocalService.shared.sendMessage(prompt, imageData: jpeg)
         } catch {
             print("[VoiceAgent] Local live video inference failed: \(error)")
@@ -1127,6 +1144,14 @@ final class VoiceAgentViewModel: ObservableObject {
     private var watchPrevPollThumb: [UInt8]?
     /// When the last inference finished — enforces a hard duty-cycle floor.
     private var watchLastDescribeEnd = Date.distantPast
+    /// Freshest description of the current view + when it was made. This is the loop's real
+    /// product: silent visual context, kept warm so questions can be grounded instantly.
+    private(set) var watchLatestDescription: (text: String, at: Date)?
+    /// Whether the loop SPEAKS what it sees. OFF by default — this is how Gemini Live and
+    /// ChatGPT video behave: continuous perception, but the assistant only talks when asked.
+    /// The first cut narrated every scene change and it was noise ("even if I don't ask it's
+    /// speaking by itself"). Toggled by voice: "start narrating" / "stop narrating".
+    private var watchNarrationEnabled = false
     /// Minimum time between inferences. On-device test: walking made every frame a "new scene",
     /// chaining back-to-back full-GPU inferences — times ramped 3.3s -> 9.6s and the device hit
     /// thermal SERIOUS in ninety seconds. The loop must idle even when the world keeps changing.
@@ -1224,17 +1249,21 @@ final class VoiceAgentViewModel: ObservableObject {
                     //  3. no command turn began while we were inferring (the async window the
                     //     old point-checks missed — this is what cut replies mid-sentence).
                     // speakWatchLine itself is ambient: appends into silence, never preempts.
+                    if !description.isEmpty {
+                        self.watchLatestDescription = (description, Date())
+                        self.aiTranscript = description   // silent context still shows on screen
+                    }
                     let sceneMovedOn = self.watchLastSpokenThumb.map {
                         FrameChange.isNewScene(thumb, $0)
                     } ?? true
-                    if !description.isEmpty, sceneMovedOn,
+                    if self.watchNarrationEnabled,
+                       !description.isEmpty, sceneMovedOn,
                        FrameChange.isWorthSpeaking(description, lastSpoken: self.watchLastSpoken),
                        !self.commandTurnActive,
                        !self.ttsService.isSpeaking, !KokoroTTSService.shared.isSpeaking,
                        self.agentState != .thinking, self.isLiveVideoMode {
                         self.watchLastSpoken = description
                         self.watchLastSpokenThumb = thumb
-                        self.aiTranscript = description
                         MetricsCollector.shared.count("watch_spoke")
                         self.speakWatchLine(description)
                     }
@@ -1256,6 +1285,8 @@ final class VoiceAgentViewModel: ObservableObject {
         watchLastSpokenThumb = nil
         watchPrevPollThumb = nil
         watchLastDescribeEnd = .distantPast
+        watchLatestDescription = nil
+        watchNarrationEnabled = false
     }
 
     /// Speak a watch-loop line OUTSIDE the turn pipeline: no history, no turn metrics — and via
