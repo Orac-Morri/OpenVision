@@ -106,15 +106,15 @@ targets:
 packages:
   meta-wearables-dat-ios:
     url: https://github.com/facebook/meta-wearables-dat-ios
-    # Pinned EXACTLY (was `from: 0.4.0`, which floated to 0.8.0 and broke the build after 4
-    # months of SDK drift). 0.6.0 made StreamSession's init inaccessible and 0.7.0 renamed it,
-    # so 0.5.0 is the highest version below the API cliff.
+    # Pinned EXACTLY — this SDK rewrites its API most releases, so never float (`from:`).
     #
-    # 0.4.0 -> 0.5.0: newer glasses models. A Blayzer Gen 2 owner gets "Connected Devices 0"
-    # on 0.4.0 (which predates that hardware), and TurboMeta gained Ray-Ban Display support
-    # precisely by moving to 0.5.0 — evidence the SDK version gates device recognition.
+    # 0.5.0 -> 0.9.0: device support gates on SDK version. "Blayzer Optics" glasses (issue #55)
+    # enumerate as 0 devices on 0.5.0, which predates that hardware; support for the newer
+    # frames landed in 0.6.0 (Ray-Ban Meta Optics) and 0.8.0 (Meta Glasses). 0.9.0 is the
+    # camera-consolidation API: DeviceSession.addCamera(config:) -> Camera -> camera.stream
+    # (StreamSession/addStream are gone). Requires iOS 17.2+.
     # MUST be regression-tested on Gen 1/2 glasses (register + stream + HFP mic) before merge.
-    exactVersion: "0.5.0"
+    exactVersion: "0.9.0"
   # PrismML fork of mlx-swift, adding 1-bit quantized Metal kernels (upstream PR pending).
   # Needed to load Bonsai-8B (Qwen3-8B at 1-bit g128, 1.28 GB vs E2B's 3.6 GB). Declared at the
   # ROOT so every consumer (mlx-swift-lm + the three vendored packages) resolves the same identity.

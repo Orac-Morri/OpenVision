@@ -44,7 +44,10 @@ final class GlassesManager: ObservableObject {
     // MARK: - Private Properties
 
     private let wearables = Wearables.shared
-    private var streamSession: StreamSession?
+    // 0.9.0 camera lifecycle: DeviceSession owns the device link, Camera owns the camera
+    // hardware, camera.stream carries frames. Stopping the camera cascades to the stream.
+    private var deviceSession: DeviceSession?
+    private var camera: Camera?
 
     // Listener tokens (retained to keep subscriptions active)
     private var registrationTask: Task<Void, Never>?
@@ -163,47 +166,53 @@ final class GlassesManager: ObservableObject {
             return
         }
 
-        // Use SpecificDeviceSelector like xmeta does (more reliable than AutoDeviceSelector)
+        // SpecificDeviceSelector stays the more reliable choice over AutoDeviceSelector
         let specificSelector = SpecificDeviceSelector(device: deviceId)
 
-        // Configure stream session
-        let config = StreamSessionConfig(
+        let config = StreamConfiguration(
             videoCodec: .raw,
-            resolution: .medium,  // Medium resolution like xmeta
-            frameRate: 30         // 30fps like xmeta
+            resolution: .medium,
+            frameRate: 30
         )
 
-        streamSession = StreamSession(
-            streamSessionConfig: config,
-            deviceSelector: specificSelector
-        )
+        do {
+            let session = try wearables.createSession(deviceSelector: specificSelector)
+            guard let cam = try session.addCamera(config: config) else {
+                errorMessage = "Failed to attach camera to device session"
+                print("[GlassesManager] addCamera returned nil")
+                return
+            }
+            deviceSession = session
+            camera = cam
 
-        guard let session = streamSession else {
-            errorMessage = "Failed to create stream session"
-            print("[GlassesManager] Failed to create stream session")
-            return
+            setupStreamListeners(stream: cam.stream)
+
+            print("[GlassesManager] Starting device session + stream...")
+            try session.start()
+            cam.stream.start()
+            isStreaming = true
+            print("[GlassesManager] Streaming started successfully")
+        } catch {
+            errorMessage = "Stream start failed: \(error.localizedDescription)"
+            print("[GlassesManager] Stream start error: \(error)")
+            cleanupStreamListeners()
+            camera = nil
+            deviceSession = nil
         }
-
-        // Set up listeners
-        setupStreamListeners(session: session)
-
-        // Start streaming
-        print("[GlassesManager] Starting stream session...")
-        await session.start()
-        isStreaming = true
-        print("[GlassesManager] Streaming started successfully")
     }
 
     /// Stop camera streaming
     func stopStreaming() async {
-        guard isStreaming, let session = streamSession else { return }
+        guard isStreaming || camera != nil || deviceSession != nil else { return }
 
         print("[GlassesManager] Stopping camera stream")
 
-        await session.stop()
+        camera?.stop()          // cascades to the stream
+        deviceSession?.stop()
 
         cleanupStreamListeners()
-        streamSession = nil
+        camera = nil
+        deviceSession = nil
         isStreaming = false
         lastFrame = nil
         lastFrameTime = .distantPast
@@ -213,18 +222,18 @@ final class GlassesManager: ObservableObject {
 
     /// Capture a photo from the glasses camera
     func capturePhoto() async {
-        guard isStreaming, let session = streamSession else {
+        guard isStreaming, let stream = camera?.stream else {
             errorMessage = "Streaming must be active to capture photos"
             return
         }
 
         print("[GlassesManager] Capturing photo")
 
-        do {
-            try await session.capturePhoto(format: .jpeg)
-        } catch {
-            errorMessage = "Failed to capture photo: \(error.localizedDescription)"
-            print("[GlassesManager] Photo capture error: \(error)")
+        // Non-throwing since 0.9.0; failures surface as StreamError.photoCaptureFailed
+        // on the error publisher, which setupStreamListeners already routes to errorMessage.
+        if !stream.capturePhoto(format: .jpeg) {
+            errorMessage = "Failed to start photo capture"
+            print("[GlassesManager] capturePhoto returned false")
         }
     }
 
@@ -258,9 +267,9 @@ final class GlassesManager: ObservableObject {
         }
     }
 
-    private func setupStreamListeners(session: StreamSession) {
+    private func setupStreamListeners(stream: MWDATCamera.Stream) {
         // State listener
-        stateListenerToken = session.statePublisher.listen { [weak self] state in
+        stateListenerToken = stream.statePublisher.listen { [weak self] state in
             Task { @MainActor in
                 switch state {
                 case .streaming:
@@ -274,7 +283,7 @@ final class GlassesManager: ObservableObject {
         }
 
         // Video frame listener
-        videoFrameListenerToken = session.videoFramePublisher.listen { [weak self] frame in
+        videoFrameListenerToken = stream.videoFramePublisher.listen { [weak self] frame in
             Task { @MainActor in
                 // Hand the raw sample buffer to the recorder (if any). SessionRecorder immediately
                 // hops it onto its own writer queue, so this stays cheap even at 30fps.
@@ -288,7 +297,7 @@ final class GlassesManager: ObservableObject {
         }
 
         // Photo data listener
-        photoDataListenerToken = session.photoDataPublisher.listen { [weak self] photoData in
+        photoDataListenerToken = stream.photoDataPublisher.listen { [weak self] photoData in
             Task { @MainActor in
                 let data = photoData.data
                 self?.lastPhotoData = data
@@ -298,7 +307,7 @@ final class GlassesManager: ObservableObject {
         }
 
         // Error listener
-        errorListenerToken = session.errorPublisher.listen { [weak self] error in
+        errorListenerToken = stream.errorPublisher.listen { [weak self] error in
             Task { @MainActor in
                 self?.errorMessage = error.localizedDescription
                 print("[GlassesManager] Stream error: \(error)")
