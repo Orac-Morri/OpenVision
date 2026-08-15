@@ -513,8 +513,10 @@ final class VoiceAgentViewModel: ObservableObject {
             self.soundService.playWakeWordSound()
 
             // If TTS is speaking, stop it immediately (interrupt)
-            if self.ttsService.isSpeaking {
+            if self.ttsService.isSpeaking || KokoroTTSService.shared.isSpeaking {
                 print("[VoiceAgent] Stopping TTS due to wake word interrupt")
+                // Also an interruption: the user said the wake word over a reply in progress.
+                MetricsCollector.shared.markInterrupted()
                 self.ttsService.stop()
                 self.ttsStreaming = false   // keep flag in sync with the cleared stream
                 KokoroTTSService.shared.stop()
@@ -585,6 +587,9 @@ final class VoiceAgentViewModel: ObservableObject {
         voiceCommandService.onInterruption = { [weak self] in
             guard let self else { return }
             print("[VoiceAgent] Barge-in detected")
+            // Interruption rate is a satisfaction signal: users talk over an agent that is slow,
+            // wrong, or too verbose. Recorded on the turn being interrupted.
+            MetricsCollector.shared.markInterrupted()
 
             // Stop TTS immediately
             self.ttsService.stop()
@@ -1614,6 +1619,9 @@ final class VoiceAgentViewModel: ObservableObject {
             // Streamed replies never reach speakResponse, so this is where perceived latency ends
             // on the Apple-TTS path — and it lands EARLIER than on the Kokoro path, which is
             // exactly the difference `tts_lead_in_s` is meant to expose.
+            // TTS time-to-first-byte starts when the engine is handed text, not when generation
+            // finishes — on a streamed reply those are seconds apart.
+            MetricsCollector.shared.markTTSRequested()
             MetricsCollector.shared.markFirstAudio()
             if usingAppleTTS {
                 ttsService.beginStreaming()
@@ -1671,6 +1679,7 @@ final class VoiceAgentViewModel: ObservableObject {
         // Perceived latency ends here: the gap between this and speechEnd is the wearer's wait.
         // (An approximation — synthesis still has to start — but it is the moment we hand off,
         // and the difference between Kokoro and Apple TTS shows up in `ttsLeadIn`.)
+        MetricsCollector.shared.markTTSRequested()
         MetricsCollector.shared.markFirstAudio()
         // Kokoro (on-device neural) when selected + ready; otherwise the Apple system voice.
         if settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady {

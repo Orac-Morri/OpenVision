@@ -87,11 +87,18 @@ final class InfluxMetricsSink: MetricsSink, @unchecked Sendable {
         if let v = turn.timeToFirstToken { fields.append("ttft_s=\(v)") }
         if let v = turn.generationDuration { fields.append("generation_s=\(v)") }
         if let v = turn.ttsLeadIn { fields.append("tts_lead_in_s=\(v)") }
+        if let v = turn.ttsTimeToFirstByte { fields.append("tts_ttfb_s=\(v)") }
         if let v = turn.perceivedLatency { fields.append("perceived_latency_s=\(v)") }
         if let v = turn.totalDuration { fields.append("total_s=\(v)") }
         if let v = turn.tokensPerSecond { fields.append("tokens_per_second=\(v)") }
         if let v = turn.tokenCount { fields.append("tokens=\(v)i") }
+        // RED's "errors" and the voice-agent interruption rate. Written as 0/1 integers rather
+        // than booleans so they can be averaged into rates directly in Flux — a mean over
+        // `succeeded` IS the success rate.
         fields.append("abandoned=\(turn.abandoned)")
+        fields.append("failed=\(turn.abandoned ? 1 : 0)i")
+        fields.append("succeeded=\(turn.abandoned ? 0 : 1)i")
+        fields.append("interrupted=\(turn.interrupted ? 1 : 0)i")
 
         // A point with no measurable field is noise.
         guard fields.count > 1 else { return }
@@ -106,6 +113,15 @@ final class InfluxMetricsSink: MetricsSink, @unchecked Sendable {
             ],
             fields: fields,
             timestamp: turn.spokeDoneAt ?? turn.firstAudioAt ?? turn.startedAt
+        ))
+    }
+
+    func record(event: String, at time: Date) {
+        enqueue(line(
+            measurement: "event",
+            tags: ["device": config.deviceName, "name": event],
+            fields: ["count=1i"],
+            timestamp: time
         ))
     }
 

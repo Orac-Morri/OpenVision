@@ -10,6 +10,9 @@ protocol MetricsSink: Sendable {
     func record(system: SystemMetrics, at time: Date)
     /// A finished (or abandoned) voice turn.
     func record(turn: TurnTimeline)
+    /// A counted occurrence — wake words heard, recognizer restarts, and so on.
+    /// Name only, never content: these must not carry anything the user said.
+    func record(event: String, at time: Date)
     /// Best-effort flush, e.g. when the app backgrounds.
     func flush()
 }

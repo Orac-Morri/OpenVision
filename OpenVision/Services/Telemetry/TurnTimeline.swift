@@ -29,6 +29,9 @@ struct TurnTimeline: Identifiable, Sendable {
     var commitAt: Date?
     var firstTokenAt: Date?
     var generationDoneAt: Date?
+    /// When text was handed to the speech engine. Distinct from `generationDoneAt`: on a streamed
+    /// reply the first sentence is sent while the model is still writing the rest.
+    var ttsRequestedAt: Date?
     var firstAudioAt: Date?
     var spokeDoneAt: Date?
 
@@ -46,7 +49,13 @@ struct TurnTimeline: Identifiable, Sendable {
     /// Tokens produced, for tok/s. Nil when the backend doesn't report it (cloud streaming).
     var tokenCount: Int?
     /// True when the turn ended early (interrupted/superseded/error) rather than completing.
+    /// This is the "E" in RED — a turn that failed is a failure whether or not it was slow.
     var abandoned: Bool = false
+
+    /// True when the user spoke over the assistant during this turn (barge-in). Industry tracks
+    /// interruption rate as a satisfaction signal — repeated interruptions mean the agent is
+    /// talking too long, answering wrongly, or being too slow to be worth waiting for.
+    var interrupted: Bool = false
 
     init(id: UUID = UUID(), startedAt: Date) {
         self.id = id
@@ -75,6 +84,14 @@ struct TurnTimeline: Identifiable, Sendable {
         guard let generationDoneAt, let firstAudioAt else { return nil }
         return firstAudioAt.timeIntervalSince(generationDoneAt)
     }
+
+    /// Speech-engine time-to-first-byte: text handed to TTS -> first audible sound.
+    ///
+    /// The industry-standard TTS metric (targets are around 150 ms for cloud engines). Distinct
+    /// from `ttsLeadIn`, which is measured from GENERATION being finished: on a streamed reply the
+    /// first sentence goes to the engine long before the model stops writing, so lead-in can be
+    /// negative while this stays positive. This is the one that answers "how slow is synthesis?"
+    var ttsTimeToFirstByte: TimeInterval? { Self.delta(ttsRequestedAt, firstAudioAt) }
 
     /// THE headline: how long the wearer waits in silence after they stop speaking.
     var perceivedLatency: TimeInterval? { Self.delta(speechEndAt, firstAudioAt) }

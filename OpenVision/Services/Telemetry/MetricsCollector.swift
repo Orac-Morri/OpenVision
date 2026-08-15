@@ -73,6 +73,22 @@ final class MetricsCollector: ObservableObject {
         for sink in sinks { sink.flush() }
     }
 
+    /// Record a counted occurrence (wake word heard, recognizer restarted, …).
+    ///
+    /// Speech-recognition QUALITY is otherwise invisible: transcripts arrive garbled
+    /// ("53258 Okay Vision") with nothing to measure. Counting wake-word detections against
+    /// completed commands, and counting recognizer restarts, gives a usable proxy — a high
+    /// restart rate means the recognizer is churning, which is what shreds transcripts.
+    /// Names only; never anything the user said.
+    func count(_ event: String) {
+        let now = Date()
+        eventCounts[event, default: 0] += 1
+        for sink in sinks { sink.record(event: event, at: now) }
+    }
+
+    /// Running totals for this app run, shown in the debug panel.
+    @Published private(set) var eventCounts: [String: Int] = [:]
+
     // MARK: - Turn lifecycle
 
     /// A new turn begins. Any turn still in flight is closed as abandoned so it isn't lost.
@@ -113,8 +129,19 @@ final class MetricsCollector: ObservableObject {
         if let tokenCount { currentTurn?.tokenCount = tokenCount }
     }
 
+    /// Text was handed to the speech engine. Starts the TTS time-to-first-byte clock.
+    func markTTSRequested() { setIfUnset(\.ttsRequestedAt) }
+
     /// First audible sound of the reply — the end of the wearer's perceived wait.
     func markFirstAudio() { setIfUnset(\.firstAudioAt) }
+
+    /// The user spoke over the assistant. Recorded on the turn being interrupted, so interruption
+    /// rate can be read per model/engine — a slow or wrong answer gets talked over more.
+    func markInterrupted() {
+        guard var turn = currentTurn else { return }
+        turn.interrupted = true
+        currentTurn = turn
+    }
 
     /// Playback finished; the turn is done and gets published.
     ///

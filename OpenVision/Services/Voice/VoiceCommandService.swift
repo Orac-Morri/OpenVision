@@ -458,6 +458,9 @@ final class VoiceCommandService: ObservableObject {
         }
 
         print("[VoiceCommand] Restarted recognition (cleared buffer)")
+        // Restart churn is the proxy for recognizer health: a high rate here is what shreds
+        // transcripts into fragments like "53258 Okay Vision".
+        MetricsCollector.shared.count("recognition_restart")
     }
 
     /// Exit conversation mode
@@ -710,6 +713,7 @@ final class VoiceCommandService: ObservableObject {
     /// Handle wake word detection
     private func handleWakeWordDetected() {
         print("[VoiceCommand] Wake word detected!")
+        MetricsCollector.shared.count("wake_word_detected")
 
         // Activate cooldown
         wakeWordCooldownActive = true
@@ -748,6 +752,7 @@ final class VoiceCommandService: ObservableObject {
         guard !command.isEmpty else { return }
 
         print("[VoiceCommand] Command captured: \(command)")
+        MetricsCollector.shared.count("command_captured")
 
         state = .processing
         silenceTimer?.invalidate()
