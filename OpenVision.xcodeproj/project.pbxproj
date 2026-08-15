@@ -60,6 +60,7 @@
 		79C519EDCA508C00DAAB1F6E /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42C04946FFC3B3A9DE78573 /* VoiceSettingsView.swift */; };
 		7A0FECD93C32597CA6659BC9 /* TimerTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 605D6841BA373D249632606F /* TimerTool.swift */; };
 		7C118644498027D47E828115 /* wake_word_ding.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 98C627C6F13B708A7A8D2CDA /* wake_word_ding.mp3 */; };
+		7CA534599CCCA8F8F6D0F2E9 /* FrameChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD61D89B52FA30C43C174DED /* FrameChange.swift */; };
 		7CE3313B3D27BADF471BC662 /* AIBackendConformances.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0861272700BD040456BCAFE /* AIBackendConformances.swift */; };
 		7EFA8E02534E7BD122331508 /* DocumentSearchTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C34D9959966F79B36E01B21 /* DocumentSearchTool.swift */; };
 		800BD44B75446351A267E190 /* OpenAISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D83F733F1799E2675A34CC4 /* OpenAISettingsView.swift */; };
@@ -67,6 +68,7 @@
 		8351C940EEB51503B73F3449 /* KokoroSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F363A639A7050AFBDFAF486 /* KokoroSettingsView.swift */; };
 		88419FB22964F22C4FB748C2 /* ClipboardTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = F45F55A97C67CC055B44A349 /* ClipboardTool.swift */; };
 		8BB3557D9BE4E9F2399BDBC1 /* VoiceAgentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 601D21AA8114E457F40C6C4A /* VoiceAgentView.swift */; };
+		9A7811CF026E8DF74F74C2A2 /* FrameChangeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88E1A3CDAF6C7B3D7DF36FE /* FrameChangeTests.swift */; };
 		9C57BDC2BF482048DD9EDEBD /* TelemetrySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF73163E29BE05564C2F719 /* TelemetrySettingsView.swift */; };
 		A17626C4B92966423AF06452 /* OpenAIRealtimeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 422747099A4406E793760E57 /* OpenAIRealtimeService.swift */; };
 		A7A3B0467B07F116AEF20BEE /* AudioSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA55F18F98C8B110680989C /* AudioSessionManager.swift */; };
@@ -178,6 +180,7 @@
 		ADCFF581A7AE50FBF35EA257 /* GeminiLiveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiLiveService.swift; sourceTree = "<group>"; };
 		B2B78D6C28BEFF1F8426997C /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		B2FD4A9B156D92B468B28864 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		B88E1A3CDAF6C7B3D7DF36FE /* FrameChangeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameChangeTests.swift; sourceTree = "<group>"; };
 		BDBE980F673E3077B58977E5 /* AppleNativeTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNativeTools.swift; sourceTree = "<group>"; };
 		BE4D7E31C137C29246EB9281 /* NativeToolSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeToolSupportTests.swift; sourceTree = "<group>"; };
 		BE848862D72446F7BBDD3D89 /* KokoroTTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KokoroTTSService.swift; sourceTree = "<group>"; };
@@ -193,6 +196,7 @@
 		C539AB340611B1A6CCC50F17 /* OpenClawService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawService.swift; sourceTree = "<group>"; };
 		CAD745CF110FC8C25A5B34D8 /* HapticFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticFeedback.swift; sourceTree = "<group>"; };
 		CB80CCD2E9A1401CA81D3A16 /* SpeechActivityDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechActivityDetector.swift; sourceTree = "<group>"; };
+		CD61D89B52FA30C43C174DED /* FrameChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameChange.swift; sourceTree = "<group>"; };
 		CE2B8AE1E195B62D980BEA66 /* SoundService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundService.swift; sourceTree = "<group>"; };
 		CEE6F61B22736F87248FD0F5 /* LocalAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAgent.swift; sourceTree = "<group>"; };
 		D0861272700BD040456BCAFE /* AIBackendConformances.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIBackendConformances.swift; sourceTree = "<group>"; };
@@ -421,6 +425,7 @@
 				7B780FDA4F96B3F7AB139870 /* Documents */,
 				2250FA48F206C7E76373000D /* GeminiLive */,
 				B929FE4E9AB889620F64C057 /* GemmaLocal */,
+				8A48BDC50C59094410D90476 /* LiveVision */,
 				AFC04292177BAB72780D70D7 /* LocalAgent */,
 				C37934DAC6755B4E1A63B13F /* NativeTools */,
 				03755A8F00C2C19369155953 /* OpenAIRealtime */,
@@ -462,6 +467,14 @@
 				C539AB340611B1A6CCC50F17 /* OpenClawService.swift */,
 			);
 			path = OpenClaw;
+			sourceTree = "<group>";
+		};
+		8A48BDC50C59094410D90476 /* LiveVision */ = {
+			isa = PBXGroup;
+			children = (
+				CD61D89B52FA30C43C174DED /* FrameChange.swift */,
+			);
+			path = LiveVision;
 			sourceTree = "<group>";
 		};
 		8F12C1169529CE44B11137F4 /* Packages */ = {
@@ -589,6 +602,7 @@
 			isa = PBXGroup;
 			children = (
 				39552315579536D518404FED /* DocumentChunkingTests.swift */,
+				B88E1A3CDAF6C7B3D7DF36FE /* FrameChangeTests.swift */,
 				DD3DFE96152AAE9145F104D6 /* LocalAgentRouteTests.swift */,
 				BE4D7E31C137C29246EB9281 /* NativeToolSupportTests.swift */,
 				C05A9A6876CC108B7CEDFDFC /* TextChunkingTests.swift */,
@@ -758,6 +772,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E9628B20FB4654FBBFC61EF9 /* DocumentChunkingTests.swift in Sources */,
+				9A7811CF026E8DF74F74C2A2 /* FrameChangeTests.swift in Sources */,
 				DC6776A7CBFBB8E151FB6B85 /* LocalAgentRouteTests.swift in Sources */,
 				5F19226406CF5B705B57BACF /* NativeToolSupportTests.swift in Sources */,
 				361AD2F1AB7C557D47CD125D /* TextChunkingTests.swift in Sources */,
@@ -795,6 +810,7 @@
 				F6489F185DBE88FE282819D1 /* DocumentStore.swift in Sources */,
 				30442E82FFAD470C97955E08 /* DocumentsSettingsView.swift in Sources */,
 				79216FADF7B5CD556FD6FDEE /* FaceRecognitionService.swift in Sources */,
+				7CA534599CCCA8F8F6D0F2E9 /* FrameChange.swift in Sources */,
 				7694BA570FF3ACCF29E2C5C9 /* GeminiLiveService.swift in Sources */,
 				F1D86E9A3AB2A994A205AB83 /* GeminiSettingsView.swift in Sources */,
 				BFC445B65C5C0BE610EC719E /* GeminiVisionService.swift in Sources */,

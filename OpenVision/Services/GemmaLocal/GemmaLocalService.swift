@@ -889,6 +889,46 @@ final class GemmaLocalService: ObservableObject {
         setProcessing(false)
     }
 
+    // MARK: - Continuous live vision (watch loop)
+
+    /// One frame → one short description. Built for the continuous watch loop, so it deliberately
+    /// bypasses everything `sendMessage` does around a real turn: no conversation history, no
+    /// onAgentMessage/TTS callbacks, and NO MetricsCollector marks — the loop runs between user
+    /// turns, and its inferences stamping a dangling turn's timeline would corrupt turn metrics.
+    /// Frame pacing is observed via the counted watch_* events instead.
+    ///
+    /// maxTokens is capped hard: telemetry showed command replies averaging ~90 tokens at 5-8
+    /// tok/s under TTS contention — a paragraph per glance is what made the old behaviour describe
+    /// a scene the wearer had already left.
+    func describeFrame(_ jpeg: Data, prompt: String, maxTokens: Int = 30) async throws -> String {
+        guard let container = modelContainer, visionReady else { throw GemmaLocalError.modelNotLoaded }
+        guard UIApplication.shared.applicationState != .background else { throw GemmaLocalError.backgrounded }
+        guard let ciImage = CIImage(data: jpeg) else { throw GemmaLocalError.badFrame }
+        // Same image handling as sendMessage: FastVLM at native resolution (its FastViTHD encoder
+        // is built for it), everything else bounded to 512 to keep encoder memory in check.
+        let isFastVLM = loadedModelId.map { GemmaLocalModel.from(modelId: $0).isFastVLM } ?? false
+        let resize: CGSize? = isFastVLM ? nil : CGSize(width: 512, height: 512)
+        let userInput = UserInput(
+            chat: [
+                .init(role: .system, content: "You describe the wearer's camera view. Answer in ONE short sentence, no preamble. Describe only what is clearly visible; if unsure, say so briefly rather than guessing."),
+                .init(role: .user, content: prompt, images: [.ciImage(ciImage)])
+            ],
+            processing: .init(resize: resize)
+        )
+        let stream = try await container.perform { (context: ModelContext) in
+            let lmInput = try await context.processor.prepare(input: userInput)
+            let params = GenerateParameters(maxTokens: maxTokens, temperature: 0.2)
+            return try MLXLMCommon.generate(input: lmInput, parameters: params, context: context)
+        }
+        var full = ""
+        for await item in stream {
+            if case .chunk(let piece) = item { full += piece }
+        }
+        // Same jetsam hygiene as every other generate: vision encoders leave MLX buffers behind.
+        Memory.clearCache()
+        return full.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Agentic intent routing (shared logic lives in LocalAgent)
 
     typealias FaceIntent = LocalAgent.FaceIntent
@@ -1158,12 +1198,15 @@ final class GemmaLocalService: ObservableObject {
     enum GemmaLocalError: LocalizedError {
         case modelNotLoaded
         case backgrounded
+        case badFrame
         var errorDescription: String? {
             switch self {
             case .modelNotLoaded:
                 return "The local Gemma model isn't loaded. Download it in Settings → AI Backend → Local (Gemma 4)."
             case .backgrounded:
                 return "On-device AI can't run while the app is in the background. Bring OpenVision to the foreground."
+            case .badFrame:
+                return "The camera frame couldn't be decoded."
             }
         }
     }

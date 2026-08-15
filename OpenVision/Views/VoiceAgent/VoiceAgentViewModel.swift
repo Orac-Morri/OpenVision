@@ -1061,7 +1061,12 @@ final class VoiceAgentViewModel: ObservableObject {
         isLiveVideoMode = true
         agentState = .liveVideo
 
-        print("[VoiceAgent] ✓ Local live video mode active - SmolVLM2 answering on latest frame")
+        // Continuous watch loop: describe the CURRENT view as it changes, instead of only
+        // answering on the frame that was current when a question finished processing — the old
+        // behaviour spoke about whatever it saw last, seconds behind a head turn.
+        startWatchLoop()
+
+        print("[VoiceAgent] ✓ Local live video mode active - watch loop + questions on latest frame")
         ttsService.speak("Live video mode active, on device")
     }
 
@@ -1097,6 +1102,120 @@ final class VoiceAgentViewModel: ObservableObject {
         if isLiveVideoMode { agentState = .liveVideo }
     }
 
+    // MARK: - Continuous watch loop (local live video)
+
+    private var watchTask: Task<Void, Never>?
+    /// Grayscale thumbnail of the last frame we RAN INFERENCE on — the scene-change gate.
+    private var watchLastThumb: [UInt8]?
+    /// The last description actually SPOKEN — the chatter gate.
+    private var watchLastSpoken: String?
+
+    /// Describe the current view continuously, spending inference only on scene changes and
+    /// speech only on genuinely new content. Economics per frame (measured): inference ~1-2s of
+    /// GPU; speaking costs contention on top (decode drops ~40% while Kokoro synthesises). Both
+    /// gates are pure logic in FrameChange, with tests.
+    private func startWatchLoop() {
+        stopWatchLoop()
+        // Only vision-trusted local models; the loop silently does nothing on a text model.
+        guard GemmaLocalModel.from(modelId: settingsManager.settings.localGemmaModelId).supportsOnDeviceVision else {
+            print("[VoiceAgent] Watch loop not started — loaded model has no on-device vision")
+            return
+        }
+        watchLastThumb = nil
+        watchLastSpoken = nil
+        watchTask = Task { [weak self] in
+            while let self, !Task.isCancelled, self.isLiveVideoMode {
+                // Yield entirely while a question is being answered or a reply is being spoken —
+                // the loop must never steal GPU from a real turn, and describing while speaking
+                // would talk over the answer.
+                if self.agentState == .thinking
+                    || self.ttsService.isSpeaking || KokoroTTSService.shared.isSpeaking {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
+                // Freshness over completeness: only a frame from the last 500ms, no settle wait.
+                guard Date().timeIntervalSince(self.glassesManager.lastFrameTime) < 0.5,
+                      let frame = self.glassesManager.lastFrame else {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    continue
+                }
+                // Scene-change gate: skip inference when the view hasn't meaningfully changed.
+                let thumb = Self.grayThumbnail(frame)
+                if let last = self.watchLastThumb, !FrameChange.isNewScene(thumb, last) {
+                    MetricsCollector.shared.count("watch_skipped")
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
+                guard let jpeg = frame.jpegData(compressionQuality: 0.6) else {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    continue
+                }
+                self.watchLastThumb = thumb
+                let inferStart = Date()
+                do {
+                    let description = try await GemmaLocalService.shared.describeFrame(
+                        jpeg, prompt: "What is in view right now?")
+                    let inferSeconds = Date().timeIntervalSince(inferStart)
+                    MetricsCollector.shared.count("watch_described")
+                    NSLog("[OV] watch: %.2fs \"%@\"", inferSeconds, description)
+                    // Chatter gate: speak only when the description says something NEW, and never
+                    // over a reply that started while we were inferring. A dropped line is fine —
+                    // the next scene change will describe again.
+                    if !description.isEmpty,
+                       FrameChange.isWorthSpeaking(description, lastSpoken: self.watchLastSpoken),
+                       !self.ttsService.isSpeaking, !KokoroTTSService.shared.isSpeaking,
+                       self.agentState != .thinking, self.isLiveVideoMode {
+                        self.watchLastSpoken = description
+                        self.aiTranscript = description
+                        MetricsCollector.shared.count("watch_spoke")
+                        self.speakWatchLine(description)
+                    }
+                } catch {
+                    // Model switching/backgrounded mid-loop is normal; back off rather than spin.
+                    NSLog("[OV] watch: describe failed: %@", "\(error)")
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            }
+        }
+    }
+
+    private func stopWatchLoop() {
+        watchTask?.cancel()
+        watchTask = nil
+        watchLastThumb = nil
+        watchLastSpoken = nil
+    }
+
+    /// Speak a watch-loop line OUTSIDE the turn pipeline: no history, no turn metrics — these are
+    /// ambient narration between user turns, and routing them through speakResponse would stamp
+    /// TTS marks onto any dangling turn and record narration as conversation.
+    private func speakWatchLine(_ text: String) {
+        if settingsManager.settings.ttsEngine == .kokoro && KokoroTTSService.shared.isModelReady {
+            let voice = settingsManager.settings.kokoroVoice
+            Task { await KokoroTTSService.shared.speak(text, voice: voice) }
+        } else {
+            ttsService.speak(text)
+        }
+    }
+
+    /// Downscale to a 16×16 grayscale thumbnail for the scene-change gate. Cheap enough to run
+    /// on every polled frame; the comparison math lives (tested) in FrameChange.
+    private static func grayThumbnail(_ image: UIImage) -> [UInt8] {
+        let side = 16
+        var pixels = [UInt8](repeating: 0, count: side * side)
+        guard let cg = image.cgImage else { return pixels }
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: side, height: side,
+                bitsPerComponent: 8, bytesPerRow: side, space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return }
+            context.interpolationQuality = .low
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+        return pixels
+    }
+
     /// Wait a brief `settle` for head motion to stop, then return the freshest camera frame that's
     /// genuinely recent (stream not stalled). Falls back to whatever frame we have after `maxWait`.
     /// This is the "current view, not a stale glimpse" grab for live video.
@@ -1121,6 +1240,7 @@ final class VoiceAgentViewModel: ObservableObject {
             print("[VoiceAgent] Not in live video mode")
             return
         }
+        stopWatchLoop()
 
         print("[VoiceAgent] Stopping live video mode...")
 
