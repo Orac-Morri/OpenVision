@@ -1106,9 +1106,16 @@ final class VoiceAgentViewModel: ObservableObject {
                            "describe the scene"]
         let lowered = command.lowercased()
         if let latest = watchLatestDescription,
-           Date().timeIntervalSince(latest.at) < 10,
-           genericLook.contains(where: { lowered.contains($0) }) {
-            NSLog("[OV] live: instant answer from watch cache (%.1fs old)", Date().timeIntervalSince(latest.at))
+           Date().timeIntervalSince(latest.at) < 15,
+           genericLook.contains(where: { lowered.contains($0) }),
+           // The gate that matters: the CURRENT frame must still show the scene the cached
+           // description was made from. Age alone lied — after a head-turn the cache stays
+           // temporally fresh while describing the previous scene, which produced instant,
+           // confident answers about a desk while the wearer looked at a wall.
+           Date().timeIntervalSince(glassesManager.lastFrameTime) < 0.5,
+           let currentFrame = glassesManager.lastFrame,
+           !FrameChange.isNewScene(Self.grayThumbnail(currentFrame), latest.thumb) {
+            NSLog("[OV] live: instant answer from watch cache (%.1fs old, scene matched)", Date().timeIntervalSince(latest.at))
             speakResponse(latest.text)
             if isLiveVideoMode { agentState = .liveVideo }
             return
@@ -1136,19 +1143,28 @@ final class VoiceAgentViewModel: ObservableObject {
         do {
             // Strip "take a photo"-style wording; the frame is already attached.
             var prompt = visionPromptFromCommand(command)
-            // Ground with the watch loop's silent context when it's fresh: the model answers the
-            // question against the frame, with its own recent read of the scene as a hint —
-            // this is what the loop is FOR now that it no longer narrates.
-            if let latest = watchLatestDescription, Date().timeIntervalSince(latest.at) < 20 {
-                prompt += "\n(Your own view a moment ago: \(latest.text))"
+            // Grounding rules, learned the hard way: a 0.5B model weights TEXT hints over
+            // PIXELS. A stale "your view a moment ago: desk with two monitors" made it describe
+            // the desk while the wearer looked at a wall. So:
+            //  - the current-view hint attaches ONLY if the frame we're sending still matches
+            //    the scene that hint describes (thumbnail comparison, not age);
+            //  - past views attach ONLY to past-referent questions ("what was", "did you see",
+            //    "earlier"), where the past is the point — never to present-tense questions.
+            let frameThumb = Self.grayThumbnail(frame)
+            if let latest = watchLatestDescription,
+               Date().timeIntervalSince(latest.at) < 20,
+               !FrameChange.isNewScene(frameThumb, latest.thumb) {
+                prompt += "\n(Your own read of this same view a moment ago: \(latest.text))"
             }
-            // Rolling memory: the two scenes before that, so questions about something the
-            // wearer JUST looked away from still have a referent. Capped to bound tokens.
-            let older = watchRecentDescriptions.dropLast().suffix(2)
-                .filter { Date().timeIntervalSince($0.at) < 90 }
-            if !older.isEmpty {
-                let lines = older.map { "- \($0.text)" }.joined(separator: "\n")
-                prompt += "\n(Views shortly before that:\n\(lines))"
+            let asksAboutPast = ["what was", "did you see", "earlier", "before", "just saw",
+                                 "a moment ago"].contains(where: { lowered.contains($0) })
+            if asksAboutPast {
+                let past = watchRecentDescriptions.suffix(3)
+                    .filter { Date().timeIntervalSince($0.at) < 90 }
+                if !past.isEmpty {
+                    let lines = past.map { "- \($0.text)" }.joined(separator: "\n")
+                    prompt += "\n(Scenes you saw in the last minute or so:\n\(lines))"
+                }
             }
             try await GemmaLocalService.shared.sendMessage(prompt, imageData: jpeg)
         } catch {
@@ -1176,7 +1192,7 @@ final class VoiceAgentViewModel: ObservableObject {
     private var watchLastDescribeEnd = Date.distantPast
     /// Freshest description of the current view + when it was made. This is the loop's real
     /// product: silent visual context, kept warm so questions can be grounded instantly.
-    private(set) var watchLatestDescription: (text: String, at: Date)?
+    private(set) var watchLatestDescription: (text: String, at: Date, thumb: [UInt8])?
     /// Rolling memory of recent scene descriptions (newest last, capped). The streaming-video-LLM
     /// literature converges on "treat video as a stream with memory, not independent photos" —
     /// this is the same idea in text space, at ~zero cost: questions get the last minute of what
@@ -1286,9 +1302,8 @@ final class VoiceAgentViewModel: ObservableObject {
                     //     old point-checks missed — this is what cut replies mid-sentence).
                     // speakWatchLine itself is ambient: appends into silence, never preempts.
                     if !description.isEmpty {
-                        let entry = (description, Date())
-                        self.watchLatestDescription = entry
-                        self.watchRecentDescriptions.append(entry)
+                        self.watchLatestDescription = (description, Date(), thumb)
+                        self.watchRecentDescriptions.append((description, Date()))
                         if self.watchRecentDescriptions.count > Self.watchMemoryLimit {
                             self.watchRecentDescriptions.removeFirst()
                         }
