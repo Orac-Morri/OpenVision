@@ -72,9 +72,15 @@ final class InfluxMetricsSink: MetricsSink, @unchecked Sendable {
             system.batteryLevel.map { "battery_level=\($0)" }
         ].compactMap { $0 }
 
+        // NOTE: thermal is deliberately a FIELD only, never also a tag.
+        //
+        // Tagging it split the device series into one per thermal state, so a last-value reduce
+        // could return the newest point of a STALE series — the gauge showed "serious" from 15
+        // minutes earlier while the phone (and the in-app panel) said "fair". Any value that
+        // CHANGES over time belongs in a field; tags are for identity that doesn't.
         enqueue(line(
             measurement: "device",
-            tags: ["device": config.deviceName, "thermal": system.thermalLabel],
+            tags: ["device": config.deviceName],
             fields: fields,
             timestamp: time
         ))

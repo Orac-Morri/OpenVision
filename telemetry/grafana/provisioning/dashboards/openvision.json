@@ -126,7 +126,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"succeeded\")\n  |> keep(columns: [\"_value\"])\n  |> mean()\n  |> map(fn: (r) => ({r with _value: r._value * 100.0}))"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"succeeded\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> mean()\n  |> map(fn: (r) => ({r with _value: r._value * 100.0}))"
         }
       ],
       "options": {
@@ -171,7 +171,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"succeeded\")\n  |> aggregateWindow(every: 1m, fn: count, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"succeeded\")\n  |> group()\n  |> aggregateWindow(every: 1m, fn: count, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
       ],
       "options": {
@@ -237,7 +237,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.95)"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.95)"
         }
       ],
       "options": {
@@ -299,7 +299,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.99)"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.99)"
         }
       ],
       "options": {
@@ -361,7 +361,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"interrupted\")\n  |> keep(columns: [\"_value\"])\n  |> mean()\n  |> map(fn: (r) => ({r with _value: r._value * 100.0}))"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"interrupted\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> mean()\n  |> map(fn: (r) => ({r with _value: r._value * 100.0}))"
         }
       ],
       "options": {
@@ -427,7 +427,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"memory_available_mb\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"memory_available_mb\")\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
       ],
       "options": {
@@ -643,7 +643,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> median()"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> median()"
         }
       ],
       "options": {
@@ -662,7 +662,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "TTS time-to-first-byte",
+      "title": "TTS time-to-first-byte (p95)",
       "description": "Text handed to the speech engine -> first sound. The industry-standard TTS metric (cloud engines target ~150ms). Distinct from lead-in, which is measured from generation finishing.",
       "datasource": {
         "type": "influxdb",
@@ -709,7 +709,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.95)"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tts_ttfb_s\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> quantile(q: 0.95)"
         }
       ],
       "options": {
@@ -771,7 +771,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"tokens_per_second\")\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
       ],
       "options": {
@@ -862,7 +862,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"thermal_level\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"thermal_level\")\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
       ],
       "options": {
@@ -927,7 +927,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"memory_available_mb\")\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device\" and r._field == \"memory_available_mb\")\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
       ],
       "options": {
@@ -972,7 +972,7 @@
             "type": "influxdb",
             "uid": "openvision-influx"
           },
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> keep(columns: [\"_value\"])\n  |> count()"
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.model =~ /^${model:regex}$/)\n  |> filter(fn: (r) => r.tts =~ /^${tts:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"turn\" and r._field == \"perceived_latency_s\")\n  |> group()\n  |> keep(columns: [\"_value\"])\n  |> count()"
         }
       ],
       "options": {
