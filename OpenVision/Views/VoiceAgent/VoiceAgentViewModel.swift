@@ -1690,17 +1690,17 @@ final class VoiceAgentViewModel: ObservableObject {
 
     /// Speak one completed sentence on whichever engine is active.
     ///
-    /// Apple TTS enqueues synchronously; Kokoro has to synthesise first, so it runs in a Task.
-    /// Ordering is preserved because Kokoro's own queue appends in call order and each chunk is
-    /// scheduled on the player as it completes.
+    /// Both calls are synchronous enqueues now. The previous version wrapped Kokoro in a fresh
+    /// `Task` per sentence — independent tasks are UNORDERED, so sentence 2 could synthesise and
+    /// play before sentence 1 (the comment claiming order was preserved was wrong). Kokoro now
+    /// owns a FIFO drained by a single task, making ordering structural.
     private func speakStreamedChunk(_ sentence: String) {
         // First-wins: the first sentence handed over starts the TTS TTFB clock.
         MetricsCollector.shared.markTTSRequested()
         if usingAppleTTS {
             ttsService.speakChunk(sentence)
         } else {
-            let voice = settingsManager.settings.kokoroVoice
-            Task { await KokoroTTSService.shared.speakChunk(sentence, voice: voice) }
+            KokoroTTSService.shared.speakChunk(sentence, voice: settingsManager.settings.kokoroVoice)
         }
     }
 

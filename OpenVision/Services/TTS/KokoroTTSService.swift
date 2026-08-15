@@ -143,6 +143,8 @@ final class KokoroTTSService: ObservableObject {
         isSpeaking = false          // breaks the per-sentence synthesis loop
         streaming = false
         streamStarted = false
+        utteranceCancelled = true   // in-flight synthesis discards its output
+        chunkQueue.removeAll()
         pendingBuffers = 0
         if audioReady { playerNode.stop() }
     }
@@ -154,6 +156,23 @@ final class KokoroTTSService: ObservableObject {
     /// Whether any chunk has been enqueued in this streamed utterance — the first one restarts
     /// the player to clear a previous reply, later ones append for gapless playback.
     private var streamStarted = false
+    /// Sentences waiting to be synthesised, in arrival order. Drained by exactly ONE task:
+    /// callers previously spawned an independent Task per sentence, and those are unordered —
+    /// sentence 2 could synthesise and play before sentence 1, and concurrent calls raced the
+    /// `streamStarted` flag. A single drainer over a FIFO makes ordering structural.
+    private var chunkQueue: [(text: String, voice: String)] = []
+    private var drainTask: Task<Void, Never>?
+    /// Set by stop() so in-flight synthesis discards its output. This must NOT be inferred from
+    /// `streaming`/queue state: endStreaming() legitimately arrives while the FIRST sentence is
+    /// still synthesising (generation often finishes before synthesis under GPU contention), and
+    /// a state-based guard dropped that entire reply.
+    private var utteranceCancelled = false
+
+    /// True when nothing remains to synthesise OR play for the current utterance. `pendingBuffers`
+    /// alone is not enough: a sentence can still be in synthesis (queue drained of BUFFERS but not
+    /// of WORK), and clearing `isSpeaking` then would unpause the recognizer straight into the
+    /// reply's own upcoming audio.
+    private var outputDrained: Bool { chunkQueue.isEmpty && drainTask == nil && pendingBuffers <= 0 }
 
     /// Open a streamed utterance.
     ///
@@ -165,24 +184,48 @@ final class KokoroTTSService: ObservableObject {
     func beginStreaming() {
         streaming = true
         streamStarted = false
+        chunkQueue.removeAll()
+        utteranceCancelled = false
         generationActive = true
         isSpeaking = true          // pauses the recognizer for the whole utterance
     }
 
-    /// Synthesise and enqueue ONE completed sentence. Safe to call repeatedly while the language
-    /// model is still generating.
-    func speakChunk(_ sentence: String, voice: String) async {
+    /// Queue ONE completed sentence for synthesis. Safe to call repeatedly while the language
+    /// model is still generating; sentences play strictly in the order they were queued.
+    func speakChunk(_ sentence: String, voice: String) {
         let clean = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, isModelReady, streaming else { return }
+        chunkQueue.append((clean, voice))
+        drainIfNeeded()
+    }
+
+    /// Start the single drainer if it isn't running. The class is @MainActor, so queue mutations
+    /// are serialised; the only suspension is the detached synthesis, during which new sentences
+    /// append behind the one in flight.
+    private func drainIfNeeded() {
+        guard drainTask == nil else { return }
+        drainTask = Task { [weak self] in
+            while let self, !self.chunkQueue.isEmpty {
+                let next = self.chunkQueue.removeFirst()
+                await self.synthesizeAndEnqueue(text: next.text, voice: next.voice)
+            }
+            guard let self else { return }
+            self.drainTask = nil
+            // endStreaming may have fired while we were synthesising the tail.
+            if !self.generationActive && self.outputDrained { self.isSpeaking = false }
+        }
+    }
+
+    private func synthesizeAndEnqueue(text: String, voice: String) async {
         do {
             let voiceArray = try await ensureVoice(voice)
             let tts = try ensureEngine()
             let language: Language = voice.first == "b" ? .enGB : .enUS
             let samples: [Float] = try await Task.detached(priority: .userInitiated) {
-                let (audio, _) = try tts.generateAudio(voice: voiceArray, language: language, text: clean)
+                let (audio, _) = try tts.generateAudio(voice: voiceArray, language: language, text: text)
                 return audio
             }.value
-            guard streaming, !samples.isEmpty else { return }
+            guard !utteranceCancelled, !samples.isEmpty else { return }
             enqueue(samples, restartPlayer: !streamStarted)
             streamStarted = true
         } catch {
@@ -190,12 +233,13 @@ final class KokoroTTSService: ObservableObject {
         }
     }
 
-    /// Close the streamed utterance. Playback continues until the queue drains, and `isSpeaking`
-    /// clears from the buffer-completion callback — same bookkeeping as `speak(_:voice:)`.
+    /// Close the streamed utterance: no more sentences are coming, but anything already queued
+    /// still synthesises and plays. `isSpeaking` clears when output is fully drained — from the
+    /// buffer-completion callback, or from the drainer if it finishes last.
     func endStreaming() {
         streaming = false
         generationActive = false
-        if pendingBuffers <= 0 { isSpeaking = false }
+        if outputDrained { isSpeaking = false }
     }
 
     // MARK: - Playback (24 kHz mono float, sentence-queued)
@@ -241,7 +285,7 @@ final class KokoroTTSService: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     self.pendingBuffers -= 1
-                    if self.pendingBuffers <= 0 && !self.generationActive {
+                    if self.outputDrained && !self.generationActive {
                         self.isSpeaking = false
                     }
                 }
