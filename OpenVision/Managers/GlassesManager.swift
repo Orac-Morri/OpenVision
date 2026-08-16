@@ -4,6 +4,7 @@
 import Foundation
 import SwiftUI
 import CoreMedia
+import OSLog
 import MWDATCore
 import MWDATCamera
 
@@ -144,6 +145,20 @@ final class GlassesManager: ObservableObject {
 
         print("[GlassesManager] Starting camera stream for device: \(deviceId)")
 
+        // Diagnostic (issue #55 follow-up): the SDK's own verdict on whether it can drive
+        // this hardware — surfaces firmware/SDK mismatches that otherwise fail as an opaque
+        // "Device unavailable" at session start.
+        if let device = wearables.deviceForIdentifier(deviceId) {
+            print("[GlassesManager] Device \(device.nameOrId()): type=\(device.deviceType()) link=\(device.linkState) compatibility=\(device.compatibility())")
+            if device.compatibility() == .deviceUpdateRequired {
+                errorMessage = "Glasses firmware update required — update in the Meta AI app"
+            } else if device.compatibility() == .sdkUpdateRequired {
+                errorMessage = "Glasses too new for this SDK version"
+            }
+        } else {
+            print("[GlassesManager] deviceForIdentifier returned nil")
+        }
+
         // Request camera permission first (like xmeta does)
         do {
             var status = try await wearables.checkPermissionStatus(.camera)
@@ -183,6 +198,15 @@ final class GlassesManager: ObservableObject {
             // attaching the camera to an idle session returns nil (issue #55, Blayzer test).
             // Subscribe to state before start() so the .started transition can't be missed.
             let stateStream = session.stateStream()
+            // The session can abort during startup (starting -> stopping -> stopped) with the
+            // reason only on its error stream — log it or we debug blind (seen on Gen 1/2).
+            let sessionErrorTask = Task {
+                for await error in session.errorStream() {
+                    print("[GlassesManager] Device session error: \(error) — \(error.description)")
+                    await MainActor.run { self.errorMessage = "Session error: \(error.description)" }
+                }
+            }
+            defer { sessionErrorTask.cancel() }
             print("[GlassesManager] Starting device session...")
             try session.start()
 
@@ -206,6 +230,7 @@ final class GlassesManager: ObservableObject {
             guard started else {
                 errorMessage = "Device session did not start (timeout)"
                 print("[GlassesManager] Device session failed to reach .started")
+                dumpSDKLogs(since: 30)
                 session.stop()
                 deviceSession = nil
                 return
@@ -344,6 +369,27 @@ final class GlassesManager: ObservableObject {
                 self?.errorMessage = error.localizedDescription
                 print("[GlassesManager] Stream error: \(error)")
             }
+        }
+    }
+
+    /// TEMP DIAGNOSTIC (issue #55 follow-up): the DAT SDK logs its teardown reasons via OSLog,
+    /// which `devicectl --console` can't see. The app CAN read its own process's entries, so on
+    /// session failure dump every non-Apple subsystem line from the last `seconds` to stdout.
+    private func dumpSDKLogs(since seconds: TimeInterval) {
+        do {
+            let store = try OSLogStore(scope: .currentProcessIdentifier)
+            let position = store.position(date: Date().addingTimeInterval(-seconds))
+            let entries = try store.getEntries(at: position)
+            print("[GlassesManager] ===== SDK log dump (last \(Int(seconds))s) =====")
+            for entry in entries {
+                guard let log = entry as? OSLogEntryLog else { continue }
+                let sub = log.subsystem
+                guard !sub.isEmpty, !sub.hasPrefix("com.apple") else { continue }
+                print("[SDKLOG] \(sub)/\(log.category) [\(log.level.rawValue)] \(log.composedMessage)")
+            }
+            print("[GlassesManager] ===== end SDK log dump =====")
+        } catch {
+            print("[GlassesManager] OSLogStore dump failed: \(error)")
         }
     }
 

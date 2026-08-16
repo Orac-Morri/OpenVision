@@ -2,6 +2,7 @@
 // Meta Ray-Ban glasses registration and status
 
 import SwiftUI
+import MWDATCore
 
 struct GlassesSettingsView: View {
     // MARK: - Environment
@@ -124,6 +125,22 @@ struct GlassesSettingsView: View {
                         Label("Start Camera Stream", systemImage: "video")
                     }
                     .disabled(glassesManager.isStreaming)
+
+                    // Stages/updates the on-glasses developer component (DWA) via Meta AI.
+                    // Sessions die with "Device unavailable"/"Session ended by device" when the
+                    // DWA is missing ("DWA did not report its version" in the SDK log) — this is
+                    // the SDK's recovery path for that state.
+                    Button {
+                        Task {
+                            do {
+                                try await Wearables.shared.openDATGlassesAppUpdate()
+                            } catch {
+                                glassesManager.errorMessage = "Glasses app update hand-off failed: \(error.localizedDescription)"
+                            }
+                        }
+                    } label: {
+                        Label("Install/Update Glasses App", systemImage: "arrow.down.circle")
+                    }
 
                     Button {
                         Task {
