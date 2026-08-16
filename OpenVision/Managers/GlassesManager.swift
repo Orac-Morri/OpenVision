@@ -177,18 +177,50 @@ final class GlassesManager: ObservableObject {
 
         do {
             let session = try wearables.createSession(deviceSelector: specificSelector)
+            deviceSession = session
+
+            // Order matters (SDK docs): the session must be STARTED before addCamera —
+            // attaching the camera to an idle session returns nil (issue #55, Blayzer test).
+            // Subscribe to state before start() so the .started transition can't be missed.
+            let stateStream = session.stateStream()
+            print("[GlassesManager] Starting device session...")
+            try session.start()
+
+            let started = await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    for await state in stateStream {
+                        print("[GlassesManager] Device session state: \(state)")
+                        if state == .started { return true }
+                        if state == .stopped { return false }
+                    }
+                    return false
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 15_000_000_000)
+                    return false
+                }
+                let first = await group.next() ?? false
+                group.cancelAll()
+                return first
+            }
+            guard started else {
+                errorMessage = "Device session did not start (timeout)"
+                print("[GlassesManager] Device session failed to reach .started")
+                session.stop()
+                deviceSession = nil
+                return
+            }
+
             guard let cam = try session.addCamera(config: config) else {
                 errorMessage = "Failed to attach camera to device session"
                 print("[GlassesManager] addCamera returned nil")
+                session.stop()
+                deviceSession = nil
                 return
             }
-            deviceSession = session
             camera = cam
 
             setupStreamListeners(stream: cam.stream)
-
-            print("[GlassesManager] Starting device session + stream...")
-            try session.start()
             cam.stream.start()
             isStreaming = true
             print("[GlassesManager] Streaming started successfully")
