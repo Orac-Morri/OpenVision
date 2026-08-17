@@ -366,7 +366,13 @@ final class GlassesManager: ObservableObject {
         // Error listener
         errorListenerToken = stream.errorPublisher.listen { [weak self] error in
             Task { @MainActor in
-                self?.errorMessage = error.localizedDescription
+                // The raw video codec pauses by design when the app leaves the foreground
+                // (screen lock, app switch) and the SDK reports that as a scary-sounding
+                // error ("Critical error, the stream should end" — issue #55). Only alert
+                // for errors that happen while the user is actually looking at the app.
+                if UIApplication.shared.applicationState == .active {
+                    self?.errorMessage = error.localizedDescription
+                }
                 print("[GlassesManager] Stream error: \(error)")
             }
         }
